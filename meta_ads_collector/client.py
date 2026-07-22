@@ -25,8 +25,6 @@ from .constants import (
     DEFAULT_TIMEOUT,
     DOC_ID_SEARCH,
     DOC_ID_TYPEAHEAD,
-    FALLBACK_CSR,
-    FALLBACK_DYN,
     FALLBACK_REV,
     MAX_SESSION_AGE,
     USER_AGENT,
@@ -52,6 +50,7 @@ class MetaAdsClient:
     """
 
     BASE_URL = "https://www.facebook.com"
+    HOME_URL = "https://www.facebook.com/"
     AD_LIBRARY_URL = "https://www.facebook.com/ads/library/"
     GRAPHQL_URL = "https://www.facebook.com/api/graphql/"
 
@@ -119,6 +118,7 @@ class MetaAdsClient:
         max_retries: int = DEFAULT_MAX_RETRIES,
         retry_delay: float = DEFAULT_RETRY_DELAY,
         max_refresh_attempts: int = 3,
+        cookies: Optional[Union[dict, str]] = None,
     ):
         """
         Initialize the Meta Ads client.
@@ -136,6 +136,12 @@ class MetaAdsClient:
             retry_delay: Base delay between retries (exponential backoff)
             max_refresh_attempts: Max consecutive session refresh failures
                 before raising SessionExpiredError
+            cookies: Optional cookies to seed the session with, either a
+                ``{name: value}`` dict or a ``"k=v; k2=v2"`` header string.
+                This lets users reuse cookies from a logged-in browser
+                session (e.g. ``c_user``/``xs``).  The homepage bootstrap
+                still runs on initialize to mine a fresh ``lsd`` token
+                bound to those cookies.
         """
         self.timeout = timeout
         self.max_retries = max_retries
@@ -157,6 +163,10 @@ class MetaAdsClient:
         self._consecutive_refresh_failures = 0
         self._max_session_age = MAX_SESSION_AGE
 
+        # User-provided cookies, kept so they can be re-applied after a
+        # session refresh (which builds a brand-new cookie jar)
+        self._provided_cookies: dict[str, str] = self._parse_cookies(cookies)
+
         # Configure proxy / proxy pool
         self._proxy_pool: Optional[ProxyPool] = None
         self._proxy_string: Optional[str] = None
@@ -173,6 +183,39 @@ class MetaAdsClient:
 
         # Set default headers from the fingerprint
         self.session.headers.update(self._fingerprint.get_default_headers())
+
+        # Seed any user-provided cookies into the jar
+        self._apply_provided_cookies()
+
+    @staticmethod
+    def _parse_cookies(cookies: Optional[Union[dict, str]]) -> dict[str, str]:
+        """Normalise *cookies* into a ``{name: value}`` dict.
+
+        Accepts either a dict or a ``"k=v; k2=v2"`` header string.
+        Returns an empty dict when no cookies were provided.
+        """
+        if not cookies:
+            return {}
+        if isinstance(cookies, dict):
+            return {str(k): str(v) for k, v in cookies.items()}
+        parsed: dict[str, str] = {}
+        for part in str(cookies).split(";"):
+            part = part.strip()
+            if not part or "=" not in part:
+                continue
+            name, value = part.split("=", 1)
+            parsed[name.strip()] = value.strip()
+        return parsed
+
+    def _apply_provided_cookies(self) -> None:
+        """Seed user-provided cookies into the session for .facebook.com."""
+        for name, value in self._provided_cookies.items():
+            self.session.cookies.set(name, value, domain=".facebook.com", path="/")
+        if self._provided_cookies:
+            logger.debug(
+                f"Seeded {len(self._provided_cookies)} user-provided cookies: "
+                f"{list(self._provided_cookies.keys())}"
+            )
 
     def _setup_proxy(self, proxy: Optional[str]) -> None:
         """Configure proxy from string format host:port:user:pass"""
@@ -359,34 +402,35 @@ class MetaAdsClient:
         if doc_ids:
             logger.debug("Extracted doc_ids: %s", doc_ids)
         else:
-            logger.warning(
+            # Expected: the homepage bootstrap HTML never carries Ad Library
+            # doc_ids, so the hardcoded constants are the normal path.
+            logger.debug(
                 "Dynamic doc_id extraction found no matches in page HTML. "
-                "Falling back to hardcoded doc_ids which may be outdated. "
-                "If requests fail, the hardcoded values in constants.py "
-                "may need updating."
+                "Falling back to hardcoded doc_ids from constants.py."
             )
 
         return doc_ids
 
     def _verify_tokens(self) -> None:
-        """Verify that required tokens are present, generating fallbacks
-        for any that could not be extracted from the page HTML.
+        """Verify that required tokens are present, filling in harmless
+        defaults for any that could not be extracted from the page HTML.
 
-        No token causes a hard failure -- if extraction didn't find it,
-        a plausible value is generated so requests can proceed.
+        The ``lsd`` token is the exception: a fabricated lsd is rejected
+        by Meta with a misleading "rate limit exceeded" error (code
+        1675004), so a missing lsd is a hard failure.
+
+        Raises:
+            AuthenticationError: If no real ``lsd`` token was extracted.
         """
-        # LSD -- required for every GraphQL request
+        # LSD -- required for every GraphQL request.  Never fabricate it:
+        # a random lsd is worse than no lsd because Meta rejects it with
+        # a misleading rate-limit error.  Fail loudly instead.
         if not self._tokens.get("lsd"):
-            self._tokens["lsd"] = self._generate_lsd()
-            logger.warning(
-                "LSD token not extracted -- generated fallback: %s",
-                self._tokens["lsd"][:6] + "...",
+            raise AuthenticationError(
+                "Could not extract a real LSD token from the facebook.com "
+                "homepage -- session bootstrap failed.  Facebook may have "
+                "changed its page structure."
             )
-
-        # fb_dtsg -- optional but improves success rates
-        if "fb_dtsg" not in self._tokens:
-            self._tokens["fb_dtsg"] = self._generate_fb_dtsg()
-            logger.debug("fb_dtsg not extracted -- generated fallback")
 
         # jazoest -- calculated from LSD if not extracted
         if "jazoest" not in self._tokens:
@@ -408,11 +452,9 @@ class MetaAdsClient:
         if "__comet_req" not in self._tokens:
             self._tokens["__comet_req"] = "94"
 
-        # __dyn / __csr -- rarely in page HTML anymore, use fallbacks
-        if "__dyn" not in self._tokens:
-            self._tokens["__dyn"] = FALLBACK_DYN
-        if "__csr" not in self._tokens:
-            self._tokens["__csr"] = FALLBACK_CSR
+        # NOTE: __dyn/__csr/fb_dtsg are NOT seeded with fabricated values.
+        # They are only sent when genuinely extracted (see
+        # _build_graphql_payload); stale fallbacks trigger error 1675004.
 
         # v -- API version hex
         if "v" not in self._tokens:
@@ -500,6 +542,8 @@ class MetaAdsClient:
         # Re-configure proxy if it was set (single-proxy mode)
         if self._proxy_string:
             self._setup_proxy(self._proxy_string)
+        # Re-apply user-provided cookies (the new session has a fresh jar)
+        self._apply_provided_cookies()
         # Proxy pool is re-applied per-request in _make_request
         try:
             result = self.initialize()
@@ -607,7 +651,15 @@ class MetaAdsClient:
 
     def initialize(self) -> bool:
         """
-        Initialize the client by loading the Ad Library page and extracting tokens.
+        Initialize the client by loading the facebook.com homepage and
+        extracting tokens.
+
+        The Ad Library page (``/ads/library/``) returns HTTP 403 with a
+        JS challenge to non-browser clients, so tokens are bootstrapped
+        from the logged-out homepage instead.  Its HTML contains a real
+        ``lsd`` token, ``__spin_r`` (rev) and ``hsi``, and the response
+        sets real cookies (``datr``, ``fr``, ``sb``) -- everything the
+        GraphQL search/typeahead requests need.
 
         Returns:
             True if initialization was successful
@@ -615,101 +667,43 @@ class MetaAdsClient:
         logger.info("Initializing Meta Ads client...")
 
         try:
-            # Step 1: Generate initial cookies that Facebook expects
-            # The datr cookie is a device fingerprint - we generate one
-            datr = self._generate_datr()
-            self.session.cookies.set("datr", datr, domain=".facebook.com", path="/")
+            # Step 1: Seed the viewport cookies Facebook expects.
+            # No datr here -- the homepage response sets a real one.
             wd = f"{self._fingerprint.viewport_width}x{self._fingerprint.viewport_height}"
             self.session.cookies.set("wd", wd, domain=".facebook.com", path="/")
             self.session.cookies.set("dpr", str(self._fingerprint.dpr), domain=".facebook.com", path="/")
 
-            logger.debug(f"Set initial cookies: datr={datr[:8]}...")
-
-            # Step 2: Load the Ad Library page with minimal parameters
+            # Step 2: Load the facebook.com homepage (logged out).
             # Using sec-fetch-site: none to appear as direct navigation
             init_headers = dict(self._fingerprint.get_default_headers())
             init_headers["sec-fetch-site"] = "none"
 
             response = self._make_request(
                 "GET",
-                self.AD_LIBRARY_URL,
-                params={
-                    "active_status": "active",
-                    "ad_type": "all",
-                    "country": "US",
-                    "media_type": "all",
-                },
+                self.HOME_URL,
                 headers=init_headers,
             )
 
-            logger.debug(f"Initial request status: {response.status_code}")
+            logger.debug(f"Homepage bootstrap status: {response.status_code}")
             logger.debug(f"Response cookies: {list(self.session.cookies.keys())}")
 
-            # Check if we got a challenge response (403 with challenge script)
-            if response.status_code == 403 or "/__rd_verify_" in response.text:
-                logger.info("Got verification challenge, attempting to solve...")
-
-                if self._handle_challenge(response):
-                    # Wait a moment then retry
-                    time.sleep(1.5)
-
-                    init_headers["sec-fetch-site"] = "same-origin"
-                    init_headers["referer"] = "https://www.facebook.com/"
-
-                    response = self._make_request(
-                        "GET",
-                        self.AD_LIBRARY_URL,
-                        params={
-                            "active_status": "active",
-                            "ad_type": "all",
-                            "country": "US",
-                            "media_type": "all",
-                        },
-                        headers=init_headers,
-                    )
-                    logger.debug(f"Post-challenge attempt status: {response.status_code}")
-
-                    # If still getting challenge, try once more
-                    if response.status_code == 403 or "/__rd_verify_" in response.text:
-                        logger.info("Got another challenge, retrying...")
-                        if self._handle_challenge(response):
-                            time.sleep(1.5)
-                            response = self._make_request(
-                                "GET",
-                                self.AD_LIBRARY_URL,
-                                params={
-                                    "active_status": "active",
-                                    "ad_type": "all",
-                                    "country": "US",
-                                    "media_type": "all",
-                                },
-                                headers=init_headers,
-                            )
-                            logger.debug(f"Second post-challenge attempt status: {response.status_code}")
-
             if response.status_code != 200:
-                logger.error(f"Failed to load Ad Library page: {response.status_code}")
+                logger.error(f"Homepage bootstrap failed: {response.status_code}")
                 logger.debug(f"Response preview: {response.text[:500]}")
                 raise AuthenticationError(
-                    f"Failed to load Ad Library page (HTTP {response.status_code})"
+                    f"Homepage bootstrap failed (HTTP {response.status_code}) "
+                    "-- could not obtain tokens from facebook.com"
                 )
 
-            # Extract tokens from HTML
+            # Extract tokens from homepage HTML
             self._tokens = self._extract_tokens(response.text)
 
-            # Attempt to extract dynamic doc_ids from the page
+            # Attempt to extract dynamic doc_ids from the page.
+            # The homepage has no Ad Library doc_ids (returns {}), but
+            # keep the call so extraction picks them up if that changes.
             self._doc_ids = self._extract_doc_ids(response.text)
 
             logger.debug(f"Extracted tokens: {list(self._tokens.keys())}")
-
-            # Verify we got the essential tokens
-            if "lsd" not in self._tokens:
-                logger.warning("Could not extract LSD token - trying to find in response...")
-                # Try alternative extraction
-                lsd_match = re.search(r'"token":"([^"]{20,})"', response.text)
-                if lsd_match:
-                    self._tokens["lsd"] = lsd_match.group(1)
-                    logger.info("Found LSD token via alternative pattern")
 
             # Generate fallback values for missing tokens
             if "__spin_t" not in self._tokens:
@@ -841,12 +835,13 @@ class MetaAdsClient:
                 payload["__spin_t"] = self._tokens.get("__spin_t", str(int(time.time())))
                 payload["__spin_b"] = self._tokens.get("__spin_b", "trunk")
                 payload["__hsi"] = self._tokens.get("__hsi", str(int(time.time() * 1000)))
-                payload["__dyn"] = self._tokens.get("__dyn", FALLBACK_DYN)
-                payload["__csr"] = self._tokens.get("__csr", FALLBACK_CSR)
-                if "__hsdp" in self._tokens:
-                    payload["__hsdp"] = self._tokens["__hsdp"]
-                if "__hblp" in self._tokens:
-                    payload["__hblp"] = self._tokens["__hblp"]
+                # __dyn/__csr/fb_dtsg only when genuinely extracted -- never
+                # send stale fallbacks (they trigger error 1675004)
+                for tok in ("__dyn", "__csr", "fb_dtsg", "__hsdp", "__hblp"):
+                    if tok in self._tokens:
+                        payload[tok] = self._tokens[tok]
+                    else:
+                        payload.pop(tok, None)
 
                 headers["x-fb-lsd"] = lsd
                 response = self._make_request("POST", self.GRAPHQL_URL, data=payload, headers=headers)
@@ -904,10 +899,12 @@ class MetaAdsClient:
             "doc_id": doc_id,
         }
 
-        # Add all extracted tokens - these are important for avoiding rate limits
-        # Use fallback values if not extracted
-        payload["__dyn"] = self._tokens.get("__dyn", FALLBACK_DYN)
-        payload["__csr"] = self._tokens.get("__csr", FALLBACK_CSR)
+        # Only send __dyn/__csr/fb_dtsg when genuinely extracted from the
+        # page HTML.  Stale fallback values are rejected by Meta with a
+        # misleading "rate limit exceeded" error (code 1675004).
+        for tok in ("__dyn", "__csr", "fb_dtsg"):
+            if tok in self._tokens:
+                payload[tok] = self._tokens[tok]
 
         if "__hsdp" in self._tokens:
             payload["__hsdp"] = self._tokens["__hsdp"]
@@ -916,7 +913,7 @@ class MetaAdsClient:
 
         logger.debug(
             f"Payload tokens: lsd={lsd[:10]}..., jazoest={jazoest}, "
-            f"__dyn present={bool(payload.get('__dyn'))}"
+            f"__dyn present={'__dyn' in payload}"
         )
 
         return payload
@@ -1373,22 +1370,22 @@ class MetaAdsClient:
 
         Approaches attempted (in order):
 
-        1. **Ad Library detail page**: Loads
-           ``https://www.facebook.com/ads/library/?id={archive_id}`` and
-           extracts embedded JSON data from the server-rendered HTML.
-           This page typically contains the full ad snapshot including
-           creative content, targeting hints, and demographic data that
-           may not be present in search result edges.
-
-        2. **Collated search with page_id**: If *page_id* is supplied,
+        1. **Collated search with page_id**: If *page_id* is supplied,
            performs a targeted search filtered by page ID and looks for
            the specific ``ad_archive_id`` in the results.  This can
            surface extra fields that are only returned when a page-scoped
            query is made.
 
+        2. **Ad Library detail page** (best-effort fallback): Loads
+           ``https://www.facebook.com/ads/library/?id={archive_id}`` and
+           extracts embedded JSON data from the server-rendered HTML.
+           NOTE: this page currently returns HTTP 403 (JS challenge) to
+           non-browser clients, so this approach essentially always fails
+           fast and is kept only in case Meta relaxes that.
+
         Args:
             ad_archive_id: The numeric archive ID of the ad.
-            page_id: Optional page ID to enable approach 2.
+            page_id: Optional page ID to enable approach 1.
 
         Returns:
             A dict of parsed ad detail data.  Keys are a superset of the
@@ -1400,7 +1397,36 @@ class MetaAdsClient:
         if not self._initialized:
             self.initialize()
 
-        # ── Approach 1: Ad Library detail page ────────────────────
+        # ── Approach 1: targeted page-scoped search ───────────────
+        if page_id:
+            try:
+                response_data, _ = self.search_ads(
+                    query="",
+                    search_type="PAGE",
+                    page_ids=[page_id],
+                    first=30,
+                    active_status="ALL",
+                    country="ALL",
+                )
+                for ad_data in response_data.get("ads", []):
+                    found_id = str(
+                        ad_data.get("ad_archive_id")
+                        or ad_data.get("id")
+                        or ad_data.get("adArchiveID")
+                        or ""
+                    )
+                    if found_id == str(ad_archive_id):
+                        logger.debug(
+                            "Approach 1 succeeded for ad %s via page %s",
+                            ad_archive_id, page_id,
+                        )
+                        return dict(ad_data)
+            except Exception as exc:
+                logger.debug("Approach 1 failed for ad %s: %s", ad_archive_id, exc)
+
+        # ── Approach 2: Ad Library detail page (best effort) ──────
+        # This page 403s non-browser clients at the moment, so tolerate
+        # failure quickly and move on.
         try:
             detail_url = f"{self.AD_LIBRARY_URL}"
             params = {
@@ -1423,48 +1449,21 @@ class MetaAdsClient:
                 detail_data = self._parse_ad_detail_page(response.text, ad_archive_id)
                 if detail_data:
                     logger.debug(
-                        "Approach 1 succeeded for ad %s: %d fields",
+                        "Approach 2 succeeded for ad %s: %d fields",
                         ad_archive_id, len(detail_data),
                     )
                     return detail_data
                 logger.debug(
-                    "Approach 1: page loaded but no detail data found for ad %s",
+                    "Approach 2: page loaded but no detail data found for ad %s",
                     ad_archive_id,
                 )
             else:
                 logger.debug(
-                    "Approach 1 failed for ad %s: HTTP %d",
+                    "Approach 2 failed for ad %s: HTTP %d",
                     ad_archive_id, response.status_code,
                 )
         except Exception as exc:
-            logger.debug("Approach 1 failed for ad %s: %s", ad_archive_id, exc)
-
-        # ── Approach 2: targeted page-scoped search ───────────────
-        if page_id:
-            try:
-                response_data, _ = self.search_ads(
-                    query="",
-                    search_type="PAGE",
-                    page_ids=[page_id],
-                    first=30,
-                    active_status="ALL",
-                    country="ALL",
-                )
-                for ad_data in response_data.get("ads", []):
-                    found_id = str(
-                        ad_data.get("ad_archive_id")
-                        or ad_data.get("id")
-                        or ad_data.get("adArchiveID")
-                        or ""
-                    )
-                    if found_id == str(ad_archive_id):
-                        logger.debug(
-                            "Approach 2 succeeded for ad %s via page %s",
-                            ad_archive_id, page_id,
-                        )
-                        return dict(ad_data)
-            except Exception as exc:
-                logger.debug("Approach 2 failed for ad %s: %s", ad_archive_id, exc)
+            logger.debug("Approach 2 failed for ad %s: %s", ad_archive_id, exc)
 
         raise NotImplementedError(
             f"Could not retrieve detail data for ad {ad_archive_id}. "

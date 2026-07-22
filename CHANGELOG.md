@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-07-22
+
+### Fixed
+- **Collector completely broken by Meta Ad Library page gating.** Meta now serves HTTP 403 with a JS challenge for `GET /ads/library/` to non-browser HTTP clients, so the session bootstrap could no longer scrape tokens from that page. Every search then failed on the first request with the misleading error `1675004 "Rate limit exceeded"` because the client was submitting *fabricated* tokens (random `lsd`, stale hardcoded `__dyn`/`__csr`).
+- **New session bootstrap: facebook.com homepage.** `initialize()` now mines the session from `GET https://www.facebook.com/`, which still returns 200 logged-out: the response sets the real session cookies (`datr`, `fr`, `sb` — "cookie mining") and its HTML embeds a genuine `lsd` token, build revision, and `hsi`. The Ad Library GraphQL API works fully logged-out with these mined tokens — verified live (search, cursor pagination, typeahead, page enumeration).
+- **Fail loudly instead of poisoning requests.** A missing `lsd` now raises `AuthenticationError` at init rather than silently generating a random one (the root cause of the bogus "rate limit" errors). `fb_dtsg`, `__dyn`, and `__csr` are never fabricated; they are only sent when genuinely extracted, and the logged-out GraphQL endpoint does not require them.
+- **`get_ad_details`** now uses the page-scoped GraphQL search as its primary path (the ad detail HTML page also 403s non-browser clients); the HTML scrape remains as a best-effort fallback.
+
+### Added
+- **Bring-your-own cookies.** `MetaAdsClient`, `MetaAdsCollector`, `AsyncMetaAdsClient`, and `AsyncMetaAdsCollector` accept a new optional `cookies` parameter (`{name: value}` dict or `"k=v; ..."` string) to reuse cookies from a logged-in browser session. Fresh tokens are still mined automatically via the homepage bootstrap, and the cookies are re-applied after every session refresh.
+
+### Changed
+- Same fixes applied to the async client (`AsyncMetaAdsClient`), keeping it in mirror with the sync client.
+- Deprecated the unused `FALLBACK_DYN` / `FALLBACK_CSR` constants (no longer sent in payloads).
+- Tests: 21 new tests covering the homepage bootstrap, token non-fabrication, and the `cookies` parameter (788 passed total).
+
 ## [1.3.0] - 2026-02-21
 
 ### Changed

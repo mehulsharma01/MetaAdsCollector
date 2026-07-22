@@ -101,6 +101,7 @@ class MetaAdsCollector:
         timeout: int = DEFAULT_TIMEOUT,
         max_retries: int = DEFAULT_MAX_RETRIES,
         callbacks: Optional[dict[str, Callable]] = None,
+        cookies: Optional[Union[dict, str]] = None,
     ):
         """
         Initialize the collector.
@@ -116,11 +117,16 @@ class MetaAdsCollector:
                 functions for convenience registration. Example::
 
                     {"ad_collected": my_callback, "error_occurred": my_error_handler}
+            cookies: Optional cookies to seed the HTTP session with,
+                either a ``{name: value}`` dict or a ``"k=v; k2=v2"``
+                header string (e.g. copied from a logged-in browser).
+                Passed through to :class:`MetaAdsClient`.
         """
         self.client = MetaAdsClient(
             proxy=proxy,
             timeout=timeout,
             max_retries=max_retries,
+            cookies=cookies,
         )
         self.rate_limit_delay = rate_limit_delay
         self.jitter = jitter

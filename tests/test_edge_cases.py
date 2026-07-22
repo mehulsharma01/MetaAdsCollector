@@ -24,6 +24,7 @@ from curl_cffi.requests import Session as CffiSession
 from meta_ads_collector.client import MetaAdsClient
 from meta_ads_collector.collector import MetaAdsCollector
 from meta_ads_collector.exceptions import (
+    AuthenticationError,
     SessionExpiredError,
 )
 from meta_ads_collector.filters import FilterConfig, _strip_tz, passes_filter
@@ -161,28 +162,28 @@ class TestClientVerifyTokens:
     def _client(self) -> MetaAdsClient:
         return MetaAdsClient.__new__(MetaAdsClient)
 
-    def test_missing_lsd_generates_fallback(self):
-        """Missing LSD token should be auto-generated."""
+    def test_missing_lsd_raises_authentication_error(self):
+        """Missing LSD token is a hard failure -- it is never fabricated."""
         client = self._client()
         client._tokens = {}
-        client._verify_tokens()
-        assert "lsd" in client._tokens
-        assert len(client._tokens["lsd"]) >= 8
+        with pytest.raises(AuthenticationError, match="LSD"):
+            client._verify_tokens()
 
-    def test_empty_lsd_generates_fallback(self):
-        """Empty string LSD token should be auto-generated."""
+    def test_empty_lsd_raises_authentication_error(self):
+        """Empty string LSD token is a hard failure -- it is never fabricated."""
         client = self._client()
         client._tokens = {"lsd": ""}
-        client._verify_tokens()
-        assert client._tokens["lsd"]
-        assert len(client._tokens["lsd"]) >= 8
+        with pytest.raises(AuthenticationError, match="LSD"):
+            client._verify_tokens()
 
     def test_valid_lsd_no_optional_tokens(self):
         """Valid LSD token with missing optional tokens should not raise."""
         client = self._client()
         client._tokens = {"lsd": "valid_token_12345"}
-        # Should log warnings about fb_dtsg/jazoest but not raise
+        # fb_dtsg/__dyn/__csr are left absent (never fabricated); harmless
+        # defaults (jazoest, __hsi, ...) are filled in.  No exception.
         client._verify_tokens()
+        assert "fb_dtsg" not in client._tokens
 
     def test_valid_lsd_with_optional_tokens(self):
         """Valid LSD and optional tokens should pass cleanly."""
@@ -326,6 +327,63 @@ class TestClientBuildGraphqlPayload:
 
         assert payload["__hsdp"] == "hsdp_val"
         assert payload["__hblp"] == "hblp_val"
+
+    def test_payload_omits_dyn_csr_dtsg_by_default(self):
+        """__dyn/__csr/fb_dtsg must NOT appear unless genuinely extracted."""
+        client = MetaAdsClient.__new__(MetaAdsClient)
+        client._tokens = {"lsd": "test_lsd"}
+        client._request_counter = 0
+        client._fingerprint = MagicMock()
+
+        payload = client._build_graphql_payload(
+            doc_id="12345",
+            variables={},
+            friendly_name="TestQuery",
+        )
+
+        assert "__dyn" not in payload
+        assert "__csr" not in payload
+        assert "fb_dtsg" not in payload
+
+    def test_payload_includes_dyn_csr_dtsg_when_extracted(self):
+        """__dyn/__csr/fb_dtsg are sent when (and only when) extracted."""
+        client = MetaAdsClient.__new__(MetaAdsClient)
+        client._tokens = {
+            "lsd": "test_lsd",
+            "__dyn": "dyn_val",
+            "__csr": "csr_val",
+            "fb_dtsg": "dtsg_val",
+        }
+        client._request_counter = 0
+        client._fingerprint = MagicMock()
+
+        payload = client._build_graphql_payload(
+            doc_id="12345",
+            variables={},
+            friendly_name="TestQuery",
+        )
+
+        assert payload["__dyn"] == "dyn_val"
+        assert payload["__csr"] == "csr_val"
+        assert payload["fb_dtsg"] == "dtsg_val"
+
+    def test_payload_never_sends_fallback_dyn_csr(self):
+        """The deprecated FALLBACK_DYN/FALLBACK_CSR constants are never sent."""
+        from meta_ads_collector.constants import FALLBACK_CSR, FALLBACK_DYN
+
+        client = MetaAdsClient.__new__(MetaAdsClient)
+        client._tokens = {"lsd": "test_lsd"}
+        client._request_counter = 0
+        client._fingerprint = MagicMock()
+
+        payload = client._build_graphql_payload(
+            doc_id="12345",
+            variables={},
+            friendly_name="TestQuery",
+        )
+
+        assert FALLBACK_DYN not in payload.values()
+        assert FALLBACK_CSR not in payload.values()
 
 
 class TestClientParseSearchResponse:

@@ -105,6 +105,7 @@ class AsyncMetaAdsCollector:
         timeout: int = DEFAULT_TIMEOUT,
         max_retries: int = DEFAULT_MAX_RETRIES,
         callbacks: dict[str, Callable] | None = None,
+        cookies: dict[str, str] | str | None = None,
     ) -> None:
         """Initialize the async collector.
 
@@ -115,11 +116,15 @@ class AsyncMetaAdsCollector:
             timeout: Request timeout (seconds).
             max_retries: Maximum retry attempts per request.
             callbacks: Optional mapping of event type strings to callbacks.
+            cookies: Optional cookies to seed the client session with
+                (``{name: value}`` dict or ``"k=v; k2=v2"`` string), e.g.
+                reused from a logged-in browser session.
         """
         self.client = AsyncMetaAdsClient(
             proxy=proxy,
             timeout=timeout,
             max_retries=max_retries,
+            cookies=cookies,
         )
         self.rate_limit_delay = rate_limit_delay
         self.jitter = jitter

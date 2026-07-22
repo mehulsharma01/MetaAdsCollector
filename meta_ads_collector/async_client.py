@@ -18,8 +18,6 @@ from .client import MetaAdsClient
 from .constants import (
     DOC_ID_SEARCH,
     DOC_ID_TYPEAHEAD,
-    FALLBACK_CSR,
-    FALLBACK_DYN,
     FALLBACK_REV,
     MAX_SESSION_AGE,
 )
@@ -59,6 +57,7 @@ class AsyncMetaAdsClient:
         max_retries: int = 3,
         retry_delay: float = 2.0,
         max_refresh_attempts: int = 3,
+        cookies: dict[str, str] | str | None = None,
     ) -> None:
         """Initialize the async Meta Ads client.
 
@@ -68,11 +67,16 @@ class AsyncMetaAdsClient:
             max_retries: Maximum retry attempts per request.
             retry_delay: Base delay between retries (exponential backoff).
             max_refresh_attempts: Max consecutive session refresh failures.
+            cookies: Optional cookies to seed the session with, either a
+                ``{name: value}`` dict or a ``"k=v; k2=v2"`` string.  This
+                lets users reuse cookies from a logged-in browser session;
+                the homepage bootstrap still runs to mine a fresh ``lsd``.
         """
         self.timeout = timeout
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.max_refresh_attempts = max_refresh_attempts
+        self._seed_cookies = cookies
 
         # Reuse the sync client's logic helpers via composition.
         # _logic is ONLY used for non-HTTP methods; we never call its
@@ -126,6 +130,28 @@ class AsyncMetaAdsClient:
             kwargs["proxy"] = proxy_url
         self._client = CffiAsyncSession(**kwargs)
         self._client.headers.update(self._fingerprint.get_default_headers())
+
+        # Re-seed user-supplied cookies on every (re)build so session
+        # refreshes keep them.
+        if self._seed_cookies:
+            self._apply_cookies(self._seed_cookies)
+
+    def _apply_cookies(self, cookies: dict[str, str] | str) -> None:
+        """Seed session cookies for ``.facebook.com``.
+
+        Accepts either a ``{name: value}`` dict or a cookie-header
+        string of the form ``"k=v; k2=v2"``.
+        """
+        if isinstance(cookies, str):
+            items = []
+            for pair in cookies.split(";"):
+                name, sep, value = pair.partition("=")
+                if sep and name.strip():
+                    items.append((name.strip(), value.strip()))
+        else:
+            items = [(str(k), str(v)) for k, v in cookies.items()]
+        for name, value in items:
+            self._client.cookies.set(name, value, domain=".facebook.com", path="/")
 
     @staticmethod
     def _format_proxy_url(proxy: str) -> str:
@@ -394,19 +420,28 @@ class AsyncMetaAdsClient:
         return False
 
     async def initialize(self) -> bool:
-        """Initialize by loading the Ad Library page and extracting tokens.
+        """Initialize by loading the facebook.com homepage and extracting tokens.
+
+        The logged-out homepage returns HTTP 200, sets real cookies
+        (``datr``, ``fr``, ``sb``) and embeds a genuine ``lsd`` token,
+        ``__spin_r`` revision and ``hsi`` -- unlike the Ad Library page,
+        which now answers curl_cffi with a 403 JS challenge.
 
         Returns:
             True if initialization succeeded.
+
+        Raises:
+            AuthenticationError: If the homepage cannot be loaded or no
+                genuine ``lsd`` token can be extracted.  Tokens are never
+                fabricated -- a random ``lsd`` only triggers misleading
+                "rate limit exceeded" (error 1675004) GraphQL failures.
         """
-        import asyncio
         import re
 
         logger.info("Initializing async Meta Ads client...")
         try:
-            datr = self._logic._generate_datr()
-
-            self._client.cookies.set("datr", datr, domain=".facebook.com", path="/")
+            # Seed only the benign viewport cookies; the server sets the
+            # real datr/fr/sb cookies on the homepage response.
             wd = f"{self._fingerprint.viewport_width}x{self._fingerprint.viewport_height}"
             self._client.cookies.set("wd", wd, domain=".facebook.com", path="/")
             self._client.cookies.set(
@@ -417,56 +452,30 @@ class AsyncMetaAdsClient:
             init_headers = dict(self._fingerprint.get_default_headers())
             init_headers["sec-fetch-site"] = "none"
 
-            init_params = {
-                "active_status": "active",
-                "ad_type": "all",
-                "country": "US",
-                "media_type": "all",
-            }
-
             response = await self._make_request(
-                "GET", self.AD_LIBRARY_URL, params=init_params,
-                headers=init_headers,
+                "GET", f"{self.BASE_URL}/", headers=init_headers,
             )
-
-            # Handle 403 verification challenge (same logic as sync client)
-            if response.status_code == 403 or "__rd_verify_" in response.text:
-                logger.info("Got verification challenge, attempting to solve...")
-                if await self._handle_challenge(response):
-                    await asyncio.sleep(1.5)
-                    init_headers["sec-fetch-site"] = "same-origin"
-                    init_headers["referer"] = "https://www.facebook.com/"
-                    response = await self._make_request(
-                        "GET", self.AD_LIBRARY_URL, params=init_params,
-                        headers=init_headers,
-                    )
-
-                    # If still challenged, try once more
-                    if response.status_code == 403 or "__rd_verify_" in response.text:
-                        logger.info("Got another challenge, retrying...")
-                        if await self._handle_challenge(response):
-                            await asyncio.sleep(1.5)
-                            response = await self._make_request(
-                                "GET", self.AD_LIBRARY_URL, params=init_params,
-                                headers=init_headers,
-                            )
 
             if response.status_code != 200:
                 raise AuthenticationError(
-                    f"Failed to load Ad Library page (HTTP {response.status_code})"
+                    f"Failed to load facebook.com homepage (HTTP {response.status_code})"
                 )
 
             html = response.text
             self._tokens = self._extract_tokens(html)
             self._doc_ids = self._extract_doc_ids(html)
 
-            # Fallback LSD extraction
-            if "lsd" not in self._tokens:
-                lsd_match = re.search(r'"token":"([^"]{20,})"', html)
-                if lsd_match:
-                    self._tokens["lsd"] = lsd_match.group(1)
+            # A genuine lsd is mandatory -- never fabricate one.
+            if not self._tokens.get("lsd"):
+                raise AuthenticationError(
+                    "Could not extract lsd token from facebook.com homepage"
+                )
 
-            # Generate fallback values
+            # jazoest is derived from the genuine lsd.
+            if "jazoest" not in self._tokens:
+                self._tokens["jazoest"] = self._calculate_jazoest(self._tokens["lsd"])
+
+            # Benign defaults for spin metadata the homepage may omit.
             if "__spin_t" not in self._tokens:
                 self._tokens["__spin_t"] = str(int(time.time()))
             if "__spin_b" not in self._tokens:
@@ -475,10 +484,11 @@ class AsyncMetaAdsClient:
                 rev_match = re.search(r'"server_revision":(\d+)', html)
                 if rev_match:
                     self._tokens["__rev"] = rev_match.group(1)
+                    self._tokens["__spin_r"] = rev_match.group(1)
                 else:
                     self._tokens["__rev"] = FALLBACK_REV
+                    self._tokens["__spin_r"] = FALLBACK_REV
 
-            self._verify_tokens()
             self._initialized = True
             self._init_time = time.time()
             self._logic._init_time = self._init_time
@@ -595,25 +605,19 @@ class AsyncMetaAdsClient:
         if response.status_code == 403:
             logger.warning("Got 403 on async GraphQL request - refreshing session...")
             if await self._async_refresh_session():
-                # Rebuild payload with new tokens
+                # Rebuild the payload with the freshly mined tokens only --
+                # never substitute fallback __dyn/__csr/fb_dtsg values.
                 lsd = self._tokens.get("lsd", "")
                 payload["lsd"] = lsd
                 payload["jazoest"] = self._calculate_jazoest(lsd)
-                payload["__rev"] = self._tokens.get("__rev", FALLBACK_REV)
-                payload["__spin_r"] = self._tokens.get("__spin_r", FALLBACK_REV)
-                payload["__spin_t"] = self._tokens.get(
-                    "__spin_t", str(int(time.time())),
-                )
-                payload["__spin_b"] = self._tokens.get("__spin_b", "trunk")
-                payload["__hsi"] = self._tokens.get(
-                    "__hsi", str(int(time.time() * 1000)),
-                )
-                payload["__dyn"] = self._tokens.get("__dyn", FALLBACK_DYN)
-                payload["__csr"] = self._tokens.get("__csr", FALLBACK_CSR)
-                if "__hsdp" in self._tokens:
-                    payload["__hsdp"] = self._tokens["__hsdp"]
-                if "__hblp" in self._tokens:
-                    payload["__hblp"] = self._tokens["__hblp"]
+                for key in (
+                    "__rev", "__spin_r", "__spin_t", "__spin_b", "__hsi",
+                    "__dyn", "__csr", "fb_dtsg", "__hsdp", "__hblp",
+                ):
+                    if key in self._tokens:
+                        payload[key] = self._tokens[key]
+                    else:
+                        payload.pop(key, None)
 
                 headers["x-fb-lsd"] = lsd
                 response = await self._make_request(
@@ -715,11 +719,46 @@ class AsyncMetaAdsClient:
 
         Same parameters and return type as
         :meth:`~meta_ads_collector.client.MetaAdsClient.get_ad_details`.
+
+        Approaches attempted (in order):
+
+        1. **GraphQL page-scoped search** (primary): a targeted search
+           filtered by *page_id*, looking for the specific
+           ``ad_archive_id`` in the results.
+
+        2. **Ad Library detail page** (best-effort fallback): loads
+           ``/ads/library/?id={archive_id}`` and extracts embedded JSON
+           from the server-rendered HTML.  The page currently answers
+           curl_cffi with a 403 JS challenge, so any non-200 response
+           is tolerated and simply skipped.
         """
         if not self._initialized:
             await self.initialize()
 
-        # Approach 1: detail page
+        # Approach 1: page-scoped GraphQL search
+        if page_id:
+            try:
+                response_data, _ = await self.search_ads(
+                    query="",
+                    search_type="PAGE",
+                    page_ids=[page_id],
+                    first=30,
+                    active_status="ALL",
+                    country="ALL",
+                )
+                for ad_data in response_data.get("ads", []):
+                    found_id = str(
+                        ad_data.get("ad_archive_id")
+                        or ad_data.get("id")
+                        or ad_data.get("adArchiveID")
+                        or ""
+                    )
+                    if found_id == str(ad_archive_id):
+                        return dict(ad_data)
+            except Exception as exc:
+                logger.debug("Approach 1 failed for ad %s: %s", ad_archive_id, exc)
+
+        # Approach 2: detail page (best-effort; may be 403-challenged)
         try:
             headers = dict(self._fingerprint.get_default_headers())
             headers["referer"] = self.AD_LIBRARY_URL
@@ -744,31 +783,13 @@ class AsyncMetaAdsClient:
                 )
                 if detail_data:
                     return detail_data
-        except Exception as exc:
-            logger.debug("Approach 1 failed for ad %s: %s", ad_archive_id, exc)
-
-        # Approach 2: page-scoped search
-        if page_id:
-            try:
-                response_data, _ = await self.search_ads(
-                    query="",
-                    search_type="PAGE",
-                    page_ids=[page_id],
-                    first=30,
-                    active_status="ALL",
-                    country="ALL",
+            else:
+                logger.debug(
+                    "Approach 2: detail page returned HTTP %d for ad %s",
+                    response.status_code, ad_archive_id,
                 )
-                for ad_data in response_data.get("ads", []):
-                    found_id = str(
-                        ad_data.get("ad_archive_id")
-                        or ad_data.get("id")
-                        or ad_data.get("adArchiveID")
-                        or ""
-                    )
-                    if found_id == str(ad_archive_id):
-                        return dict(ad_data)
-            except Exception as exc:
-                logger.debug("Approach 2 failed for ad %s: %s", ad_archive_id, exc)
+        except Exception as exc:
+            logger.debug("Approach 2 failed for ad %s: %s", ad_archive_id, exc)
 
         raise NotImplementedError(
             f"Could not retrieve detail data for ad {ad_archive_id}. "

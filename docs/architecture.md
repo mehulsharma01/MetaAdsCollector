@@ -68,37 +68,48 @@ On the first `search()` call, if `_initialized` is `False`:
 
 ```
 MetaAdsClient.initialize()
-  -> Generate datr cookie (device fingerprint)
   -> Set wd and dpr cookies (viewport dimensions)
-  -> GET /ads/library/?active_status=active&ad_type=all&country=US
-  -> If 403 or challenge detected:
-       -> _handle_challenge()             # POST to /__rd_verify_* endpoint
-       -> Retry the GET
-  -> _extract_tokens(html)                # LSD, __rev, __spin_*, __hsi, fb_dtsg, __dyn, __csr, jazoest
-  -> _extract_doc_ids(html)               # Dynamic GraphQL doc_ids from page JS
-  -> _verify_tokens()                     # Ensure LSD token is present
-  -> Set fallback values for missing tokens
+  -> GET https://www.facebook.com/          # Homepage bootstrap
+  -> If non-200: raise AuthenticationError
+  -> Server sets real cookies: datr, fr, sb  # "cookie mining"
+  -> _extract_tokens(html)                # LSD, __rev/__spin_r, __hsi from homepage HTML
+  -> _extract_doc_ids(html)               # No-op on homepage -> constants fallback
+  -> _verify_tokens()                     # LSD required, else AuthenticationError
+  -> jazoest = 2 + sum(ord(c) for c in lsd)
   -> _initialized = True
 ```
 
+> **Why the homepage?** Since mid-2026, `GET /ads/library/` returns HTTP 403
+> with a JS challenge to non-browser HTTP clients, so the tokens can no
+> longer be scraped from the Ad Library page. The logged-out homepage still
+> returns 200, sets the session cookies (`datr`, `fr`, `sb`) and embeds a
+> real `lsd` token — everything the GraphQL endpoint actually validates.
+> The Ad Library GraphQL API works fully logged-out with these mined tokens.
+
 ### 3. Token Extraction
 
-`_extract_tokens()` uses regex patterns to find tokens embedded in the server-rendered HTML:
+`_extract_tokens()` uses regex patterns to find tokens embedded in the server-rendered homepage HTML:
 
 | Token | Purpose | Patterns |
 |---|---|---|
-| `lsd` | CSRF protection (mandatory) | `"LSD",[],{"token":"..."}`, `name="lsd" value="..."` |
+| `lsd` | CSRF protection (mandatory — never fabricated; init fails without it) | `"LSD",[],{"token":"..."}`, `name="lsd" value="..."` |
 | `__rev` / `__spin_r` | Build revision | `"__spin_r":12345`, `"server_revision":12345` |
 | `__spin_t` | Timestamp | `"__spin_t":12345` |
 | `__hsi` | Session ID | `"__hsi":"12345"` (with fallback to `"hsi":"12345"`) |
-| `fb_dtsg` | DTSG token | `"DTSGInitialData",[],{"token":"..."}` |
-| `__dyn` | Dynamic modules hash | `"__dyn":"..."` (no longer reliably present in HTML; fallback values used) |
-| `__csr` | CSR hash | `"__csr":"..."` (no longer reliably present in HTML; fallback values used) |
 | `v` | Version parameter | `"v":"fbece7"` (dynamically extracted when available) |
 | `x-asbd-id` | ASBD identifier | `"asbd_id":"359341"` (dynamically extracted when available) |
-| `jazoest` | Anti-abuse token | `"jazoest":12345` or computed from LSD |
+| `jazoest` | Anti-abuse token | Computed from LSD: `2 + sum(ord(c) for c in lsd)` |
 
-Fallback values from `constants.py` are used when extraction fails.
+`fb_dtsg`, `__dyn` and `__csr` are **only** sent when genuinely extracted
+(logged-out homepage HTML does not carry them, and the GraphQL endpoint
+does not require them). Fabricated values are never substituted: sending a
+fake token gets the request rejected with the misleading error
+`1675004 "Rate limit exceeded"`.
+
+Users may optionally pass `cookies=` (dict or header string) to reuse a
+logged-in browser session; the homepage bootstrap still runs to mine a
+fresh `lsd` bound to those cookies, and the cookies are re-applied after
+every session refresh.
 
 ### 4. Doc ID Extraction
 

@@ -41,7 +41,7 @@ with MetaAdsCollector() as collector:
         print(ad.id)
 ```
 
-#### `__init__(proxy, rate_limit_delay, jitter, timeout, max_retries, callbacks)`
+#### `__init__(proxy, rate_limit_delay, jitter, timeout, max_retries, callbacks, cookies)`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -51,6 +51,7 @@ with MetaAdsCollector() as collector:
 | `timeout` | `int` | `30` | Request timeout (seconds) |
 | `max_retries` | `int` | `3` | Maximum retry attempts per request |
 | `callbacks` | `dict[str, Callable] \| None` | `None` | Event callbacks mapping `{event_type: callback}` |
+| `cookies` | `dict \| str \| None` | `None` | Optional cookies from a logged-in browser session (`{name: value}` dict or `"k=v; ..."` string). Fresh session tokens are still mined automatically. |
 
 #### `search(query, country, ad_type, status, search_type, page_ids, sort_by, max_results, page_size, progress_callback, filter_config, dedup_tracker) -> Iterator[Ad]`
 
@@ -209,7 +210,7 @@ All methods mirror `MetaAdsCollector` with async signatures:
 
 Low-level HTTP client for the Meta Ad Library. Manages sessions, tokens, and GraphQL requests.
 
-#### `__init__(proxy, timeout, max_retries, retry_delay, max_refresh_attempts)`
+#### `__init__(proxy, timeout, max_retries, retry_delay, max_refresh_attempts, cookies)`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -218,10 +219,11 @@ Low-level HTTP client for the Meta Ad Library. Manages sessions, tokens, and Gra
 | `max_retries` | `int` | `3` | Maximum retries |
 | `retry_delay` | `float` | `2.0` | Base retry delay (exponential backoff) |
 | `max_refresh_attempts` | `int` | `3` | Max consecutive session refresh failures |
+| `cookies` | `dict \| str \| None` | `None` | Optional cookies from a logged-in browser session |
 
 #### `initialize() -> bool`
 
-Initialize the client by loading the Ad Library page and extracting tokens. Returns `True` on success.
+Initialize the client by loading the facebook.com homepage (which sets the session cookies) and extracting tokens. Returns `True` on success; raises `AuthenticationError` if no usable `lsd` token can be mined.
 
 #### `search_ads(query, country, ad_type, active_status, media_type, search_type, page_ids, cursor, first, sort_direction, sort_mode, session_id, collation_token) -> tuple[dict, str | None]`
 

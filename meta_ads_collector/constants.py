@@ -39,10 +39,15 @@ DEFAULT_PAGE_SIZE = 10  # results per API request (max ~30)
 # GraphQL document IDs (may change with Facebook updates)
 #
 # These are hardcoded fallbacks.  The client attempts to extract fresh
-# doc_ids from the Ad Library page HTML on each session init.  If
-# dynamic extraction fails, these values are used instead.
+# doc_ids from the page HTML on each session init.  If dynamic
+# extraction fails, these values are used instead.
 #
-# Last verified working: 2026-02-21
+# NOTE: tokens now bootstrap from the facebook.com homepage because the
+# Ad Library page returns HTTP 403 (JS challenge) to non-browser
+# clients.  The homepage HTML yields a real lsd/__spin_r/hsi, which is
+# sufficient for all GraphQL requests below.
+#
+# Last verified working: 2026-07-22
 # If requests suddenly return errors about unknown doc_ids, these
 # values likely need updating.  Run the library with DEBUG logging
 # to see whether dynamic extraction is succeeding.
@@ -53,6 +58,12 @@ DOC_ID_TYPEAHEAD = "9755915494515334"  # useAdLibraryTypeaheadSuggestionDataSour
 # ---------------------------------------------------------------------------
 # Fallback token values
 # Used when fresh values cannot be extracted from the page HTML.
+#
+# DEPRECATED / UNUSED: FALLBACK_DYN and FALLBACK_CSR are no longer sent
+# in GraphQL payloads by the sync client -- stale fabricated values
+# trigger misleading "rate limit" errors (code 1675004).  They are kept
+# only because async_client.py still imports them; do not use them in
+# new code.
 # ---------------------------------------------------------------------------
 FALLBACK_DYN = (
     "7xeUmwlECdwn8K2Wmh0no6u5U4e1Fx-ewSAwHwNw9G2S2q0_EtxG4o0B-qbwgE1EEb87C"

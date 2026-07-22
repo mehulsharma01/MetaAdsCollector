@@ -3,9 +3,11 @@
 import logging
 from unittest.mock import MagicMock, patch
 
+import pytest
 from curl_cffi.requests.exceptions import ConnectionError as CffiConnectionError
 
 from meta_ads_collector.client import MetaAdsClient
+from meta_ads_collector.exceptions import AuthenticationError
 
 
 def _make_client() -> MetaAdsClient:
@@ -30,30 +32,39 @@ class TestVerifyTokens:
         client._tokens = {"lsd": "some_token_value", "fb_dtsg": "dtsg_value", "jazoest": "12345"}
         client._verify_tokens()  # should not raise
 
-    def test_empty_lsd_generates_fallback(self):
-        """An empty LSD token should be auto-generated."""
+    def test_empty_lsd_raises_authentication_error(self):
+        """An empty LSD token is a hard failure -- lsd is never fabricated."""
         client = _make_bare_client()
         client._tokens = {"lsd": ""}
-        client._verify_tokens()
-        assert client._tokens["lsd"]  # non-empty
-        assert len(client._tokens["lsd"]) >= 8
+        with pytest.raises(AuthenticationError, match="LSD"):
+            client._verify_tokens()
 
-    def test_missing_lsd_generates_fallback(self):
-        """A completely missing LSD token should be auto-generated."""
+    def test_missing_lsd_raises_authentication_error(self):
+        """A completely missing LSD token is a hard failure -- never fabricated."""
         client = _make_bare_client()
         client._tokens = {"fb_dtsg": "something"}
-        client._verify_tokens()
-        assert "lsd" in client._tokens
-        assert len(client._tokens["lsd"]) >= 8
+        with pytest.raises(AuthenticationError, match="LSD"):
+            client._verify_tokens()
 
-    def test_missing_optional_tokens_auto_generated(self):
-        """Missing optional tokens should be auto-generated, not just warned."""
+    def test_sensitive_tokens_never_fabricated(self):
+        """fb_dtsg/__dyn/__csr are NOT auto-generated; harmless defaults are."""
         client = _make_bare_client()
         client._tokens = {"lsd": "valid_token"}
         client._verify_tokens()
-        assert "fb_dtsg" in client._tokens
-        assert "jazoest" in client._tokens
-        assert len(client._tokens["fb_dtsg"]) >= 20
+        # Never fabricated -- they are only sent when genuinely extracted,
+        # because stale fallbacks trigger Meta error 1675004.
+        assert "fb_dtsg" not in client._tokens
+        assert "__dyn" not in client._tokens
+        assert "__csr" not in client._tokens
+        # Derived / harmless defaults are still filled in.
+        assert client._tokens["jazoest"] == str(
+            2 + sum(ord(c) for c in "valid_token")
+        )
+        assert client._tokens["__hsi"]
+        assert client._tokens["__hs"]
+        assert client._tokens["__comet_req"]
+        assert client._tokens["v"]
+        assert client._tokens["x-asbd-id"]
 
     def test_all_tokens_present_no_warnings(self, caplog):
         """When all optional tokens are present, no warnings should be logged."""
