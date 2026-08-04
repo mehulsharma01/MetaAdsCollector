@@ -3,24 +3,24 @@
 # (via main.py) instead of the default Node.js "main.js".
 FROM apify/actor-python:3.12
 
-# Install build/runtime deps first for better layer caching.
-COPY requirements.txt ./
-COPY pyproject.toml ./
-COPY README.md ./
-
-# Install the Apify SDK plus the collector package and its dependencies
-# (curl_cffi). We install the package itself so `import meta_ads_collector`
-# works at runtime.
-COPY meta_ads_collector ./meta_ads_collector
+# Install runtime dependencies only. We deliberately do NOT `pip install .`
+# (the package build) -- it's unnecessary here and the project's
+# pyproject metadata can trip older setuptools during the build backend
+# step. Instead we install the deps directly and import the package from
+# the working directory (which Python adds to sys.path when running
+# `python main.py`).
 RUN echo "Python version:" \
     && python --version \
     && echo "Installing dependencies:" \
-    && pip install --no-cache-dir "apify>=2.0.0,<3.0.0" . \
-    && echo "All installed, checking imports:" \
-    && python -c "import apify, curl_cffi, meta_ads_collector; print('imports OK')"
+    && pip install --no-cache-dir "apify>=1.7,<3" "curl_cffi>=0.7.0"
 
-# Copy the actor entry point.
+# Copy the collector package and the actor entry point into the workdir.
+COPY meta_ads_collector ./meta_ads_collector
 COPY main.py ./
+
+# Sanity-check that everything imports before the image is finalized.
+RUN echo "Checking imports:" \
+    && python -c "import apify, curl_cffi, meta_ads_collector; print('imports OK')"
 
 # Run the actor.
 CMD ["python", "main.py"]
