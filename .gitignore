@@ -53,6 +53,7 @@ Desktop.ini
 # Output data
 *.json
 !.github/**/*.json
+!.actor/*.json
 *.csv
 *.jsonl
 output/

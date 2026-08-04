@@ -1,0 +1,40 @@
+{
+    "actorSpecification": 1,
+    "name": "meta-ads-collector",
+    "title": "Meta Ads Collector",
+    "description": "Collect ads from the Meta (Facebook) Ad Library -- no API key required.",
+    "version": "1.4",
+    "meta": {
+        "templateId": "python-start"
+    },
+    "input": "./input_schema.json",
+    "dockerfile": "../Dockerfile",
+    "storages": {
+        "dataset": {
+            "actorSpecification": 1,
+            "views": {
+                "overview": {
+                    "title": "Collected ads",
+                    "transformation": {
+                        "fields": [
+                            "id",
+                            "ad_library_id",
+                            "page",
+                            "is_active",
+                            "ad_status",
+                            "delivery_start_time",
+                            "delivery_stop_time",
+                            "impressions",
+                            "spend",
+                            "creatives",
+                            "snapshot_url"
+                        ]
+                    },
+                    "display": {
+                        "component": "table"
+                    }
+                }
+            }
+        }
+    }
+}
