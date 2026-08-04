@@ -1,0 +1,111 @@
+{
+    "title": "Meta Ads Collector input",
+    "type": "object",
+    "schemaVersion": 1,
+    "properties": {
+        "query": {
+            "title": "Search query",
+            "type": "string",
+            "description": "Keyword(s) to search the Ad Library for (e.g. \"solar panels\"). Leave empty when collecting by page URLs.",
+            "editor": "textfield",
+            "prefill": "solar panels"
+        },
+        "pageUrls": {
+            "title": "Page URLs",
+            "type": "array",
+            "description": "Optional list of Facebook page URLs (Ad Library, profile, or numeric page URLs). When provided, all ads from these pages are collected and the search query is ignored.",
+            "editor": "stringList",
+            "default": []
+        },
+        "country": {
+            "title": "Country",
+            "type": "string",
+            "description": "ISO 3166-1 alpha-2 country code to search within (e.g. US, GB, EG).",
+            "editor": "textfield",
+            "default": "US"
+        },
+        "adType": {
+            "title": "Ad type",
+            "type": "string",
+            "description": "Category of ads to collect.",
+            "editor": "select",
+            "default": "ALL",
+            "enum": [
+                "ALL",
+                "POLITICAL_AND_ISSUE_ADS",
+                "HOUSING_ADS",
+                "EMPLOYMENT_ADS",
+                "CREDIT_ADS"
+            ],
+            "enumTitles": [
+                "All ads",
+                "Political & issue ads",
+                "Housing ads",
+                "Employment ads",
+                "Credit ads"
+            ]
+        },
+        "status": {
+            "title": "Active status",
+            "type": "string",
+            "description": "Whether to collect active, inactive, or all ads.",
+            "editor": "select",
+            "default": "ACTIVE",
+            "enum": ["ACTIVE", "INACTIVE", "ALL"],
+            "enumTitles": ["Active only", "Inactive only", "All"]
+        },
+        "searchType": {
+            "title": "Search type",
+            "type": "string",
+            "description": "How to match the search query.",
+            "editor": "select",
+            "default": "KEYWORD_UNORDERED",
+            "enum": ["KEYWORD_UNORDERED", "KEYWORD_EXACT_PHRASE"],
+            "enumTitles": ["Unordered keywords", "Exact phrase"]
+        },
+        "sortBy": {
+            "title": "Sort by",
+            "type": "string",
+            "description": "Result ordering.",
+            "editor": "select",
+            "default": "SORT_BY_TOTAL_IMPRESSIONS",
+            "enum": ["SORT_BY_TOTAL_IMPRESSIONS", "RELEVANCY"],
+            "enumTitles": ["Total impressions", "Relevancy (server default)"]
+        },
+        "maxResults": {
+            "title": "Max results",
+            "type": "integer",
+            "description": "Maximum number of ads to collect. Use 0 for no limit (collect everything available). When collecting by page URLs, this limit applies per page.",
+            "editor": "number",
+            "default": 50,
+            "minimum": 0
+        },
+        "pageSize": {
+            "title": "Page size",
+            "type": "integer",
+            "description": "Number of ads requested per API call (max ~30).",
+            "editor": "number",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 30
+        },
+        "rateLimitDelay": {
+            "title": "Rate limit delay (seconds)",
+            "type": "integer",
+            "description": "Base delay between requests, in seconds, to avoid being rate limited.",
+            "editor": "number",
+            "default": 2,
+            "minimum": 0
+        },
+        "proxyConfiguration": {
+            "title": "Proxy configuration",
+            "type": "object",
+            "description": "Proxy used for outgoing requests. Residential proxies are strongly recommended to avoid blocks.",
+            "editor": "proxy",
+            "default": {
+                "useApifyProxy": true,
+                "apifyProxyGroups": ["RESIDENTIAL"]
+            }
+        }
+    }
+}
