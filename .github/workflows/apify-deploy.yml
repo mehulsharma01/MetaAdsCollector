@@ -1,0 +1,53 @@
+name: Deploy to Apify
+
+# Deploys the Actor to the Apify platform.
+#
+# Prerequisite (one-time, done by you):
+#   Repo -> Settings -> Secrets and variables -> Actions -> New repository secret
+#     Name:  APIFY_TOKEN
+#     Value: your token from Apify Console -> Settings -> Integrations
+#
+# After the secret exists, this runs automatically on every push that
+# touches the Actor, and can also be started by hand from the Actions tab
+# (Run workflow). `apify push` uploads the source and builds it on Apify.
+
+on:
+  push:
+    branches:
+      - main
+      - claude/meta-ad-library-scraper-kyvoop
+    paths:
+      - "main.py"
+      - "meta_ads_collector/**"
+      - "Dockerfile"
+      - ".actor/**"
+      - ".github/workflows/apify-deploy.yml"
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Apify CLI
+        run: npm install -g apify-cli
+
+      - name: Check APIFY_TOKEN is configured
+        env:
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+        run: |
+          if [ -z "$APIFY_TOKEN" ]; then
+            echo "::error::APIFY_TOKEN secret is not set. Add it in repo Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
+      - name: Push Actor to Apify
+        env:
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+        run: apify push --force --no-prompt
