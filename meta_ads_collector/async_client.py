@@ -155,7 +155,16 @@ class AsyncMetaAdsClient:
 
     @staticmethod
     def _format_proxy_url(proxy: str) -> str:
-        """Convert ``host:port`` or ``host:port:user:pass`` to a URL."""
+        """Convert a proxy to a URL, passing already-formed URLs through.
+
+        An input containing ``://`` (e.g. Apify's
+        ``http://user:pass@host:port``) is returned verbatim; splitting it
+        on ``:`` would mangle the scheme and credentials into an invalid
+        proxy string. Only bare ``host:port`` / ``host:port:user:pass``
+        shorthands are expanded.
+        """
+        if "://" in proxy:
+            return proxy
         parts = proxy.split(":")
         if len(parts) == 4:
             host, port, username, password = parts

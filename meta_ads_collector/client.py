@@ -218,25 +218,37 @@ class MetaAdsClient:
             )
 
     def _setup_proxy(self, proxy: Optional[str]) -> None:
-        """Configure proxy from string format host:port:user:pass"""
+        """Configure proxy from a URL or ``host:port[:user:pass]`` string.
+
+        Accepts an already-formed proxy URL (e.g. the
+        ``http://user:pass@host:port`` that Apify's proxy configuration
+        hands us) and uses it verbatim. Only the bare colon-delimited
+        ``host:port`` / ``host:port:user:pass`` shorthands are expanded.
+        """
         if not proxy:
             return
 
-        parts = proxy.split(":")
-        if len(parts) == 4:
-            host, port, username, password = parts
-            proxy_url = f"http://{username}:{password}@{host}:{port}"
-        elif len(parts) == 2:
-            host, port = parts
-            proxy_url = f"http://{host}:{port}"
+        if "://" in proxy:
+            # Already a full URL -- do NOT split on ":" (that mangles the
+            # scheme and any credentials into an invalid proxy string).
+            proxy_url = proxy
         else:
-            raise ProxyError(f"Invalid proxy format: {proxy!r}. Expected host:port or host:port:user:pass")
+            parts = proxy.split(":")
+            if len(parts) == 4:
+                host, port, username, password = parts
+                proxy_url = f"http://{username}:{password}@{host}:{port}"
+            elif len(parts) == 2:
+                host, port = parts
+                proxy_url = f"http://{host}:{port}"
+            else:
+                raise ProxyError(f"Invalid proxy format: {proxy!r}. Expected host:port or host:port:user:pass")
 
         self.session.proxies = {
             "http": proxy_url,
             "https": proxy_url,
         }
-        logger.info(f"Proxy configured: {host}:{port}")
+        # Avoid logging the full URL -- it may contain credentials.
+        logger.info("Proxy configured")
 
     def _extract_tokens(self, html: str) -> dict[str, str]:
         """Extract required tokens from the Ad Library HTML page."""

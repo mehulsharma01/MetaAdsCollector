@@ -3,7 +3,7 @@
     "name": "meta-ads-collector",
     "title": "Meta Ads Collector",
     "description": "Collect ads from the Meta (Facebook) Ad Library -- no API key required.",
-    "version": "1.4",
+    "version": "1.5",
     "meta": {
         "templateId": "python-start"
     },
