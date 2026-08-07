@@ -49,7 +49,10 @@ async def main() -> None:
         )
         if proxy_configuration:
             proxy_url = await proxy_configuration.new_url()
-            Actor.log.info("Using proxy for outgoing requests.")
+            # Log only the scheme (never the credentials) so runs confirm
+            # the proxy URL is passed through intact by the fixed parser.
+            scheme = proxy_url.split("://", 1)[0] if proxy_url else "?"
+            Actor.log.info("Using proxy for outgoing requests (scheme=%s).", scheme)
 
         collected = 0
 
