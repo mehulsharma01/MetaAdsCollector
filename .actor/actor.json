@@ -1,9 +1,9 @@
 {
     "actorSpecification": 1,
-    "name": "meta-ads-collector",
+    "name": "MetaAdsCollector",
     "title": "Meta Ads Collector",
     "description": "Collect ads from the Meta (Facebook) Ad Library -- no API key required.",
-    "version": "1.6",
+    "version": "1.7",
     "meta": {
         "templateId": "python-start"
     },
