@@ -50,4 +50,4 @@ jobs:
       - name: Push Actor to Apify
         env:
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
-        run: apify push --force --no-prompt
+        run: apify push --force
