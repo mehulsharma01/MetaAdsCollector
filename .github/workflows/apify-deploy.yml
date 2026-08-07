@@ -47,7 +47,12 @@ jobs:
             exit 1
           fi
 
-      - name: Push Actor to Apify
+      - name: Log in to Apify
         env:
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+        # `apify push` does not read APIFY_TOKEN from the environment; it
+        # requires stored credentials, so log in explicitly first.
+        run: apify login -t "$APIFY_TOKEN"
+
+      - name: Push Actor to Apify
         run: apify push --force
