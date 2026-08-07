@@ -66,11 +66,11 @@
         "sortBy": {
             "title": "Sort by",
             "type": "string",
-            "description": "Result ordering.",
+            "description": "Result ordering. Use Relevancy for normal keyword searches. 'Total impressions' only works for political & issue ads (Meta does not expose impressions for regular ads, so sorting by it returns almost no results).",
             "editor": "select",
-            "default": "SORT_BY_TOTAL_IMPRESSIONS",
-            "enum": ["SORT_BY_TOTAL_IMPRESSIONS", "RELEVANCY"],
-            "enumTitles": ["Total impressions", "Relevancy (server default)"]
+            "default": "RELEVANCY",
+            "enum": ["RELEVANCY", "SORT_BY_TOTAL_IMPRESSIONS"],
+            "enumTitles": ["Relevancy (recommended)", "Total impressions (political ads only)"]
         },
         "maxResults": {
             "title": "Max results",
