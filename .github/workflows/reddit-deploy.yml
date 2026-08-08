@@ -1,0 +1,46 @@
+name: Deploy Reddit Actor to Apify
+
+# Deploys the Reddit Intel Collector Actor (in the reddit/ subfolder) to
+# Apify. Reuses the repository's existing APIFY_TOKEN secret.
+
+on:
+  push:
+    branches:
+      - main
+      - claude/meta-ad-library-scraper-kyvoop
+    paths:
+      - "reddit/**"
+      - ".github/workflows/reddit-deploy.yml"
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Apify CLI
+        run: npm install -g apify-cli
+
+      - name: Check APIFY_TOKEN is configured
+        env:
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+        run: |
+          if [ -z "$APIFY_TOKEN" ]; then
+            echo "::error::APIFY_TOKEN secret is not set. Add it in repo Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
+      - name: Log in to Apify
+        env:
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+        run: apify login -t "$APIFY_TOKEN"
+
+      - name: Push Reddit Actor to Apify
+        working-directory: reddit
+        run: apify push --force
