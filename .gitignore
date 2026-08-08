@@ -54,6 +54,7 @@ Desktop.ini
 *.json
 !.github/**/*.json
 !.actor/*.json
+!**/.actor/*.json
 *.csv
 *.jsonl
 output/

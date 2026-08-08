@@ -1,0 +1,65 @@
+{
+    "title": "Reddit Intel Collector input",
+    "type": "object",
+    "schemaVersion": 1,
+    "properties": {
+        "query": {
+            "title": "Search query",
+            "type": "string",
+            "description": "Keyword or brand to search Reddit for (e.g. \"botox\").",
+            "editor": "textfield",
+            "prefill": "botox"
+        },
+        "subreddits": {
+            "title": "Restrict to subreddits",
+            "type": "array",
+            "description": "Optional list of subreddits to search within (e.g. \"SkincareAddiction\"). Leave empty to search all of Reddit.",
+            "editor": "stringList",
+            "default": []
+        },
+        "sort": {
+            "title": "Sort by",
+            "type": "string",
+            "description": "Result ordering.",
+            "editor": "select",
+            "default": "relevance",
+            "enum": ["relevance", "hot", "top", "new", "comments"],
+            "enumTitles": ["Relevance", "Hot", "Top", "New", "Most comments"]
+        },
+        "time": {
+            "title": "Time range",
+            "type": "string",
+            "description": "Time window for results (applies to Top/Relevance).",
+            "editor": "select",
+            "default": "all",
+            "enum": ["all", "year", "month", "week", "day", "hour"],
+            "enumTitles": ["All time", "Past year", "Past month", "Past week", "Past day", "Past hour"]
+        },
+        "maxResults": {
+            "title": "Max results",
+            "type": "integer",
+            "description": "Maximum number of posts to collect. Use 0 for no limit. When restricting to subreddits, this limit applies per subreddit.",
+            "editor": "number",
+            "default": 100,
+            "minimum": 0
+        },
+        "rateLimitDelay": {
+            "title": "Rate limit delay (seconds)",
+            "type": "integer",
+            "description": "Delay between requests, in seconds, to avoid being rate limited.",
+            "editor": "number",
+            "default": 1,
+            "minimum": 0
+        },
+        "proxyConfiguration": {
+            "title": "Proxy configuration",
+            "type": "object",
+            "description": "Proxy used for outgoing requests. Datacenter proxies are usually enough for Reddit.",
+            "editor": "proxy",
+            "default": {
+                "useApifyProxy": true
+            }
+        }
+    },
+    "required": ["query"]
+}
