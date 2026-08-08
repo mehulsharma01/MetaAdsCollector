@@ -4,7 +4,7 @@ FROM apify/actor-python:3.12
 RUN echo "Python version:" \
     && python --version \
     && echo "Installing dependencies:" \
-    && pip install --no-cache-dir "apify>=4,<5" "pytrends>=4.9.2" "pandas>=2.0"
+    && pip install --no-cache-dir "apify>=4,<5" "pytrends>=4.9.2" "pandas>=2.0" "urllib3<2"
 
 COPY main.py ./
 

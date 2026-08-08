@@ -3,7 +3,7 @@
     "name": "trends-radar",
     "title": "Trend Radar (Google Trends)",
     "description": "Google Trends trend radar: direction, interest-over-time, and rising related queries per seed keyword.",
-    "version": "1.0",
+    "version": "1.1",
     "meta": {
         "templateId": "python-start"
     },
