@@ -2,8 +2,8 @@
     "actorSpecification": 1,
     "name": "reddit-intel-collector",
     "title": "Reddit Intel Collector",
-    "description": "Search Reddit by keyword or brand and collect posts with engagement data.",
-    "version": "1.0",
+    "description": "Search Reddit by keyword or brand and collect posts with engagement, media, sentiment, and top comments.",
+    "version": "1.1",
     "meta": {
         "templateId": "python-start"
     },
@@ -24,6 +24,8 @@
                             "score",
                             "upvote_ratio",
                             "num_comments",
+                            "sentiment",
+                            "post_type",
                             "created_utc",
                             "permalink",
                             "url",

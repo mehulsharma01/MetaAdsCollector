@@ -43,6 +43,22 @@
             "default": 100,
             "minimum": 0
         },
+        "includeComments": {
+            "title": "Include top comments",
+            "type": "boolean",
+            "description": "Also fetch the top comments on each post (voice-of-customer / sentiment). Adds one request per post, so runs are slower.",
+            "editor": "checkbox",
+            "default": false
+        },
+        "commentsLimit": {
+            "title": "Comments per post",
+            "type": "integer",
+            "description": "How many top comments to fetch per post when 'Include top comments' is on.",
+            "editor": "number",
+            "default": 5,
+            "minimum": 1,
+            "maximum": 50
+        },
         "rateLimitDelay": {
             "title": "Rate limit delay (seconds)",
             "type": "integer",
