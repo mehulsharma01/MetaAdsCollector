@@ -1,0 +1,63 @@
+{
+    "title": "Trend Radar input",
+    "type": "object",
+    "schemaVersion": 1,
+    "properties": {
+        "keywords": {
+            "title": "Seed keywords",
+            "type": "array",
+            "description": "Seed terms to analyse on Google Trends (e.g. \"botox\", \"microneedling\", \"dermaplaning\").",
+            "editor": "stringList",
+            "prefill": ["botox", "microneedling", "dermaplaning"]
+        },
+        "geo": {
+            "title": "Location (geo code)",
+            "type": "string",
+            "description": "2-letter country code to scope trends (e.g. AE for United Arab Emirates, US, GB). Leave empty for worldwide.",
+            "editor": "textfield",
+            "default": "AE"
+        },
+        "timeframe": {
+            "title": "Timeframe",
+            "type": "string",
+            "description": "Google Trends time window.",
+            "editor": "select",
+            "default": "today 3-m",
+            "enum": ["now 7-d", "today 1-m", "today 3-m", "today 12-m", "today 5-y"],
+            "enumTitles": ["Past 7 days", "Past month", "Past 3 months", "Past 12 months", "Past 5 years"]
+        },
+        "includeRising": {
+            "title": "Include rising queries",
+            "type": "boolean",
+            "description": "Include the fastest-rising related queries (the core of a trend radar).",
+            "editor": "checkbox",
+            "default": true
+        },
+        "includeTop": {
+            "title": "Include top queries",
+            "type": "boolean",
+            "description": "Include the most popular related queries.",
+            "editor": "checkbox",
+            "default": true
+        },
+        "rateLimitDelay": {
+            "title": "Delay between keywords (seconds)",
+            "type": "integer",
+            "description": "Delay between keywords to avoid Google Trends rate limiting (429).",
+            "editor": "number",
+            "default": 2,
+            "minimum": 0
+        },
+        "proxyConfiguration": {
+            "title": "Proxy configuration",
+            "type": "object",
+            "description": "Proxy for outgoing requests. Google Trends rate-limits aggressively, so RESIDENTIAL is recommended.",
+            "editor": "proxy",
+            "default": {
+                "useApifyProxy": true,
+                "apifyProxyGroups": ["RESIDENTIAL"]
+            }
+        }
+    },
+    "required": ["keywords"]
+}

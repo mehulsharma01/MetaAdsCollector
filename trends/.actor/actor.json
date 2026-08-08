@@ -1,0 +1,37 @@
+{
+    "actorSpecification": 1,
+    "name": "trends-radar",
+    "title": "Trend Radar (Google Trends)",
+    "description": "Google Trends trend radar: direction, interest-over-time, and rising related queries per seed keyword.",
+    "version": "1.0",
+    "meta": {
+        "templateId": "python-start"
+    },
+    "input": "./input_schema.json",
+    "dockerfile": "../Dockerfile",
+    "storages": {
+        "dataset": {
+            "actorSpecification": 1,
+            "views": {
+                "overview": {
+                    "title": "Trends",
+                    "transformation": {
+                        "fields": [
+                            "keyword",
+                            "geo",
+                            "direction",
+                            "change_pct",
+                            "avg_interest",
+                            "latest_interest",
+                            "rising_queries",
+                            "top_queries"
+                        ]
+                    },
+                    "display": {
+                        "component": "table"
+                    }
+                }
+            }
+        }
+    }
+}

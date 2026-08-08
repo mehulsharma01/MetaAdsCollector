@@ -1,0 +1,46 @@
+name: Deploy Trends Actor to Apify
+
+# Deploys the Trend Radar Actor (in the trends/ subfolder) to Apify.
+# Reuses the repository's existing APIFY_TOKEN secret.
+
+on:
+  push:
+    branches:
+      - main
+      - claude/meta-ad-library-scraper-kyvoop
+    paths:
+      - "trends/**"
+      - ".github/workflows/trends-deploy.yml"
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Apify CLI
+        run: npm install -g apify-cli
+
+      - name: Check APIFY_TOKEN is configured
+        env:
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+        run: |
+          if [ -z "$APIFY_TOKEN" ]; then
+            echo "::error::APIFY_TOKEN secret is not set."
+            exit 1
+          fi
+
+      - name: Log in to Apify
+        env:
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+        run: apify login -t "$APIFY_TOKEN"
+
+      - name: Push Trends Actor to Apify
+        working-directory: trends
+        run: apify push --force
