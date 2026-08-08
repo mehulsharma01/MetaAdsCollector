@@ -8,9 +8,11 @@ to the default dataset.
 
 from __future__ import annotations
 
+import base64
 import logging
 
 from apify import Actor
+from curl_cffi import requests as cffi_requests
 
 from meta_ads_collector import MetaAdsCollector
 
@@ -29,6 +31,42 @@ if not _pkg_logger.handlers:
 SORT_IMPRESSIONS = "SORT_BY_TOTAL_IMPRESSIONS"
 
 
+def _pick_thumb_url(ad_dict: dict) -> "str | None":
+    """Choose the best still image for an ad (image, else video poster)."""
+    for creative in ad_dict.get("creatives") or []:
+        url = creative.get("image_url") or creative.get("thumbnail_url")
+        if url:
+            return url
+    return None
+
+
+def _augment_thumbnail(session, ad_dict: dict, max_bytes: int) -> None:
+    """Download the ad's thumbnail and attach it as a base64 data URI.
+
+    Only the Actor (running with a residential proxy) can reach Meta's
+    image CDN, so we fetch here and embed the bytes -- downstream consumers
+    (reports, dashboards) then render the real creative without hitting an
+    expiring CDN URL. Failures are non-fatal: the ad is still pushed.
+    """
+    url = _pick_thumb_url(ad_dict)
+    if not url:
+        return
+    try:
+        resp = session.get(url, timeout=25)
+        if resp.status_code != 200:
+            return
+        content = resp.content
+        if not content or len(content) > max_bytes:
+            return
+        ctype = resp.headers.get("content-type", "image/jpeg").split(";")[0].strip()
+        if not ctype.startswith("image/"):
+            ctype = "image/jpeg"
+        b64 = base64.b64encode(content).decode("ascii")
+        ad_dict["thumbnail_b64"] = f"data:{ctype};base64,{b64}"
+    except Exception as exc:  # noqa: BLE001
+        Actor.log.warning("Thumbnail download failed: %s", exc)
+
+
 async def main() -> None:
     async with Actor:
         actor_input = await Actor.get_input() or {}
@@ -42,6 +80,8 @@ async def main() -> None:
         sort_by_input = actor_input.get("sortBy") or "SORT_BY_TOTAL_IMPRESSIONS"
         page_size = int(actor_input.get("pageSize") or 10)
         rate_limit_delay = float(actor_input.get("rateLimitDelay", 2) or 0)
+        download_thumbnails = bool(actor_input.get("downloadThumbnails"))
+        thumbnail_max_bytes = int(actor_input.get("thumbnailMaxBytes") or 600000)
 
         # 0 (or missing) means "no limit".
         max_results_raw = actor_input.get("maxResults", 50)
@@ -69,6 +109,20 @@ async def main() -> None:
 
         collected = 0
 
+        # Session used only to fetch creative thumbnails (same proxy path).
+        thumb_session = None
+        if download_thumbnails:
+            thumb_session = cffi_requests.Session(impersonate="chrome")
+            if proxy_url:
+                thumb_session.proxies = {"http": proxy_url, "https": proxy_url}
+            Actor.log.info("Thumbnail download enabled (max %d bytes).", thumbnail_max_bytes)
+
+        def _push_dict(ad) -> dict:
+            d = ad.to_dict()
+            if thumb_session is not None:
+                _augment_thumbnail(thumb_session, d, thumbnail_max_bytes)
+            return d
+
         with MetaAdsCollector(
             proxy=proxy_url,
             rate_limit_delay=rate_limit_delay,
@@ -86,7 +140,7 @@ async def main() -> None:
                 for url in page_urls:
                     Actor.log.info("Collecting ads from page URL: %s", url)
                     for ad in collector.collect_by_page_url(url, **common_kwargs):
-                        await Actor.push_data(ad.to_dict())
+                        await Actor.push_data(_push_dict(ad))
                         collected += 1
             else:
                 Actor.log.info(
@@ -101,7 +155,7 @@ async def main() -> None:
                     search_type=search_type,
                     **common_kwargs,
                 ):
-                    await Actor.push_data(ad.to_dict())
+                    await Actor.push_data(_push_dict(ad))
                     collected += 1
 
         Actor.log.info("Done. Collected %d ads.", collected)

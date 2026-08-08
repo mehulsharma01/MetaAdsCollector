@@ -97,6 +97,21 @@
             "default": 2,
             "minimum": 0
         },
+        "downloadThumbnails": {
+            "title": "Download creative thumbnails",
+            "type": "boolean",
+            "description": "Download each ad's image (or video poster) and embed it as a base64 data URI in the 'thumbnail_b64' field. Lets reports/dashboards show the real creative without hitting Meta's expiring CDN URLs. Adds a request per ad.",
+            "editor": "checkbox",
+            "default": false
+        },
+        "thumbnailMaxBytes": {
+            "title": "Max thumbnail size (bytes)",
+            "type": "integer",
+            "description": "Skip embedding thumbnails larger than this, to keep dataset items lean.",
+            "editor": "number",
+            "default": 600000,
+            "minimum": 10000
+        },
         "proxyConfiguration": {
             "title": "Proxy configuration",
             "type": "object",
