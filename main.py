@@ -8,9 +8,22 @@ to the default dataset.
 
 from __future__ import annotations
 
+import logging
+
 from apify import Actor
 
 from meta_ads_collector import MetaAdsCollector
+
+# Surface the collector package's INFO logs on the Apify platform. Its
+# loggers otherwise stay at the root's default WARNING level, hiding the
+# search progress lines that make runs debuggable.
+_pkg_logger = logging.getLogger("meta_ads_collector")
+_pkg_logger.setLevel(logging.INFO)
+if not _pkg_logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    _pkg_logger.addHandler(_handler)
+    _pkg_logger.propagate = False
 
 # Sort value used by the collector for server-default relevancy ordering.
 SORT_IMPRESSIONS = "SORT_BY_TOTAL_IMPRESSIONS"
