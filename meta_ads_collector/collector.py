@@ -347,6 +347,15 @@ class MetaAdsCollector:
         page_number = 0
         search_start_time = time.monotonic()
 
+        # Meta's Ad Library returns results in small, uneven pages and
+        # frequently interleaves *empty* pages that still report
+        # ``has_next_page: True``. Stopping on the first empty page cuts
+        # collection short (the "only 2 results" bug), so we keep following
+        # the cursor and only give up after this many consecutive empty
+        # pages as a safety valve against an infinite loop.
+        consecutive_empty = 0
+        max_consecutive_empty = 30
+
         # Generate consistent session_id and collation_token for the entire search
         search_session_id = str(uuid.uuid4())
         search_collation_token = str(uuid.uuid4())
@@ -461,8 +470,26 @@ class MetaAdsCollector:
                 ads_data = response.get("ads", [])
 
                 if not ads_data:
+                    # Empty page. Only stop if Meta says there are no more
+                    # pages; otherwise keep following the cursor -- Meta
+                    # returns empty intermediate pages while more results
+                    # still exist further along the connection.
+                    if next_cursor:
+                        consecutive_empty += 1
+                        if consecutive_empty >= max_consecutive_empty:
+                            logger.info(
+                                "Stopping after %d consecutive empty pages",
+                                consecutive_empty,
+                            )
+                            break
+                        cursor = next_cursor
+                        self._delay()
+                        continue
                     logger.info("No more results returned")
                     break
+
+                # Got a non-empty page -- reset the empty-page counter.
+                consecutive_empty = 0
 
                 # Emit page_fetched after processing the page
                 has_next = bool(next_cursor)
