@@ -218,6 +218,12 @@ async def main() -> None:
             Actor.log.info("Using proxy for outgoing requests.")
 
         session = cffi_requests.Session(impersonate="chrome")
+        # Reddit is strict about headers; a realistic Accept/Language set on
+        # top of the Chrome TLS fingerprint reduces 403s.
+        session.headers.update({
+            "Accept": "application/json, text/html;q=0.9, */*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+        })
 
         # Search all of Reddit, or restrict to each named subreddit.
         targets: list[tuple[str, bool]] = []

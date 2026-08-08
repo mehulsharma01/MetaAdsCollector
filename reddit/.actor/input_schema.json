@@ -70,10 +70,11 @@
         "proxyConfiguration": {
             "title": "Proxy configuration",
             "type": "object",
-            "description": "Proxy used for outgoing requests. Datacenter proxies are usually enough for Reddit.",
+            "description": "Proxy used for outgoing requests. Reddit blocks datacenter IPs, so RESIDENTIAL is strongly recommended.",
             "editor": "proxy",
             "default": {
-                "useApifyProxy": true
+                "useApifyProxy": true,
+                "apifyProxyGroups": ["RESIDENTIAL"]
             }
         }
     },
