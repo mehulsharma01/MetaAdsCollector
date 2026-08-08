@@ -1160,6 +1160,22 @@ class MetaAdsClient:
             if page_info.get("has_next_page") or page_info.get("hasNextPage"):
                 next_cursor = page_info.get("end_cursor") or page_info.get("endCursor")
 
+            # Diagnostics: surface how the response was shaped so low result
+            # counts can be traced (edges found vs ads extracted vs paging).
+            if not edges:
+                top = list(data.get("data", {}).keys()) if isinstance(data.get("data"), dict) else "n/a"
+                res_keys = list(results.keys()) if isinstance(results, dict) else "n/a"
+                logger.info(
+                    "Search parse: 0 edges. data-keys=%s results-keys=%s page_info=%s",
+                    top, res_keys, page_info,
+                )
+            else:
+                per_edge = [len(e.get("node", e).get("collated_results", []) or []) for e in edges]
+                logger.info(
+                    "Search parse: edges=%d collated_per_edge=%s has_next=%s",
+                    len(edges), per_edge, bool(next_cursor),
+                )
+
             # Extract ad nodes - structure is edges[].node.collated_results[]
             ads = []
             for edge in edges:
