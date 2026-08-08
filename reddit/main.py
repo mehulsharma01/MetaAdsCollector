@@ -23,24 +23,18 @@ from curl_cffi import requests as cffi_requests
 
 REDDIT_BASE = "https://www.reddit.com"
 
-# Tiny built-in sentiment lexicon. Deliberately dependency-free: no model
-# download, no heavy import -- good enough to flag clearly positive vs
-# negative posts/comments for triage. Not a substitute for a real NLP model.
-_POSITIVE = {
-    "good", "great", "love", "loved", "amazing", "awesome", "best", "excellent",
-    "perfect", "recommend", "recommended", "happy", "worth", "worked", "works",
-    "helpful", "fantastic", "wonderful", "nice", "impressed", "quality", "easy",
-    "reliable", "favorite", "favourite", "win", "winning", "success", "beautiful",
-    "cheap", "affordable", "fast", "smooth", "solid", "glad", "thanks", "thank",
-}
-_NEGATIVE = {
-    "bad", "worst", "hate", "hated", "terrible", "awful", "horrible", "scam",
-    "waste", "wasted", "broken", "broke", "useless", "disappointed", "disappointing",
-    "poor", "expensive", "overpriced", "slow", "buggy", "problem", "problems",
-    "issue", "issues", "fail", "failed", "failure", "avoid", "regret", "refund",
-    "annoying", "difficult", "hard", "sucks", "sucked", "warning", "fake", "fraud",
-}
-_WORD_RE = re.compile(r"[a-z']+")
+# VADER: a social-media-tuned sentiment model (handles negation, intensifiers,
+# emphasis, emoji, slang). Pure-Python, no model download. Far more accurate on
+# short posts/comments than a plain word list. Analyzer is created once, lazily.
+_VADER = None
+
+
+def _get_analyzer():
+    global _VADER
+    if _VADER is None:
+        from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+        _VADER = SentimentIntensityAnalyzer()
+    return _VADER
 
 
 def _iso(utc_seconds: Optional[float]) -> Optional[str]:
@@ -51,23 +45,17 @@ def _iso(utc_seconds: Optional[float]) -> Optional[str]:
 
 
 def _sentiment(text: str) -> tuple[str, float]:
-    """Return (label, score) for text using the built-in lexicon.
+    """Return (label, compound_score) for text using VADER.
 
-    Score is (pos - neg) / (pos + neg) in [-1, 1]; label thresholds at
-    +/-0.2. Empty/neutral text returns ("neutral", 0.0).
+    ``compound`` is in [-1, 1]. Standard VADER thresholds: >= 0.05 positive,
+    <= -0.05 negative, else neutral. Empty text is neutral.
     """
-    if not text:
+    if not text or not text.strip():
         return "neutral", 0.0
-    words = _WORD_RE.findall(text.lower())
-    pos = sum(1 for w in words if w in _POSITIVE)
-    neg = sum(1 for w in words if w in _NEGATIVE)
-    total = pos + neg
-    if total == 0:
-        return "neutral", 0.0
-    score = round((pos - neg) / total, 3)
-    if score >= 0.2:
+    score = round(_get_analyzer().polarity_scores(text)["compound"], 3)
+    if score >= 0.05:
         return "positive", score
-    if score <= -0.2:
+    if score <= -0.05:
         return "negative", score
     return "neutral", score
 

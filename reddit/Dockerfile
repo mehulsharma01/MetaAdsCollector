@@ -11,7 +11,7 @@ FROM apify/actor-python:3.12
 RUN echo "Python version:" \
     && python --version \
     && echo "Installing dependencies:" \
-    && pip install --no-cache-dir "apify>=4,<5" "curl_cffi>=0.7.0"
+    && pip install --no-cache-dir "apify>=4,<5" "curl_cffi>=0.7.0" "vaderSentiment>=3.3.2"
 
 COPY main.py ./
 

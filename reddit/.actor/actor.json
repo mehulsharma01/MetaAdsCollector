@@ -3,7 +3,7 @@
     "name": "reddit-intel-collector",
     "title": "Reddit Intel Collector",
     "description": "Search Reddit by keyword or brand and collect posts with engagement, media, sentiment, and top comments.",
-    "version": "1.3",
+    "version": "1.4",
     "meta": {
         "templateId": "python-start"
     },
