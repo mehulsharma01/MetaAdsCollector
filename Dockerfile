@@ -16,7 +16,7 @@ FROM apify/actor-python:3.12
 RUN echo "Python version:" \
     && python --version \
     && echo "Installing dependencies:" \
-    && pip install --no-cache-dir "apify>=4,<5" "curl_cffi>=0.7.0"
+    && pip install --no-cache-dir "apify>=4,<5" "curl_cffi>=0.7.0" "Pillow>=10.0"
 
 # Copy the collector package and the actor entry point into the workdir.
 COPY meta_ads_collector ./meta_ads_collector

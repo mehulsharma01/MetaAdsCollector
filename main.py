@@ -10,9 +10,15 @@ from __future__ import annotations
 
 import base64
 import logging
+from io import BytesIO
 
 from apify import Actor
 from curl_cffi import requests as cffi_requests
+
+try:
+    from PIL import Image
+except ImportError:  # Pillow is installed in the Actor image; guard for local use.
+    Image = None
 
 from meta_ads_collector import MetaAdsCollector
 
@@ -56,11 +62,27 @@ def _augment_thumbnail(session, ad_dict: dict, max_bytes: int) -> None:
         if resp.status_code != 200:
             return
         content = resp.content
-        if not content or len(content) > max_bytes:
+        if not content:
             return
         ctype = resp.headers.get("content-type", "image/jpeg").split(";")[0].strip()
         if not ctype.startswith("image/"):
             ctype = "image/jpeg"
+
+        # Downscale so embedded thumbnails stay small (keeps dataset lean and
+        # keeps report/data-URI payloads manageable). Falls back to raw bytes.
+        if Image is not None:
+            try:
+                im = Image.open(BytesIO(content)).convert("RGB")
+                im.thumbnail((480, 480))
+                buf = BytesIO()
+                im.save(buf, format="JPEG", quality=72, optimize=True)
+                content = buf.getvalue()
+                ctype = "image/jpeg"
+            except Exception:  # noqa: BLE001
+                pass
+
+        if len(content) > max_bytes:
+            return
         b64 = base64.b64encode(content).decode("ascii")
         ad_dict["thumbnail_b64"] = f"data:{ctype};base64,{b64}"
     except Exception as exc:  # noqa: BLE001
