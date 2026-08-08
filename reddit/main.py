@@ -168,23 +168,52 @@ def _parse_comments(payload: Any, limit: int) -> list[dict[str, Any]]:
     return comments
 
 
-def _fetch_json(session, url, params, proxies, log) -> Optional[Any]:
-    """GET a Reddit JSON endpoint with retries. Returns parsed JSON or None."""
-    for attempt in range(3):
-        try:
-            resp = session.get(url, params=params, proxies=proxies, timeout=30)
-            if resp.status_code == 429:
-                wait = 5 * (attempt + 1)
-                log.warning("Rate limited (429) on %s, waiting %ss", url, wait)
-                import time
-                time.sleep(wait)
-                continue
-            resp.raise_for_status()
-            return resp.json()
-        except Exception as exc:  # noqa: BLE001
-            log.warning("Request failed (attempt %d/3) on %s: %s", attempt + 1, url, exc)
-            import time
-            time.sleep(2 * (attempt + 1))
+# www.reddit.com hard-blocks automated access (403). old.reddit.com is far
+# more tolerant, especially from residential IPs, and serves the same JSON.
+# We try old.reddit first, then www as a fallback.
+REDDIT_HOSTS = ["https://old.reddit.com", "https://www.reddit.com"]
+
+
+def _warmup(session, host, proxies, log) -> None:
+    """Hit a host's HTML root to pick up cookies before the JSON call."""
+    try:
+        session.get(host + "/", proxies=proxies, timeout=20)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Warmup failed for %s: %s", host, exc)
+
+
+def _fetch_json(session, path, params, proxies, log) -> Optional[Any]:
+    """GET a Reddit JSON path, trying multiple hosts with cookie warmup.
+
+    ``path`` is host-relative (e.g. ``/search.json``). Returns parsed JSON
+    or None after exhausting hosts and retries.
+    """
+    import time
+
+    for host in REDDIT_HOSTS:
+        url = host + path
+        for attempt in range(3):
+            try:
+                resp = session.get(
+                    url, params=params, proxies=proxies, timeout=30,
+                    headers={"Referer": host + "/"},
+                )
+                if resp.status_code == 429:
+                    wait = 5 * (attempt + 1)
+                    log.warning("Rate limited (429) on %s, waiting %ss", url, wait)
+                    time.sleep(wait)
+                    continue
+                if resp.status_code == 403:
+                    log.warning("403 on %s (attempt %d/3); warming up cookies", url, attempt + 1)
+                    _warmup(session, host, proxies, log)
+                    time.sleep(1 + attempt)
+                    continue
+                resp.raise_for_status()
+                return resp.json()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Request failed (attempt %d/3) on %s: %s", attempt + 1, url, exc)
+                time.sleep(2 * (attempt + 1))
+        log.warning("Host %s exhausted, trying next host if available.", host)
     return None
 
 
@@ -207,14 +236,19 @@ async def main() -> None:
         max_results_raw = actor_input.get("maxResults", 100)
         max_results = int(max_results_raw) if max_results_raw else None
 
-        # Resolve an Apify proxy URL when proxy configuration was supplied.
-        proxies = None
+        # Proxy: fetch a fresh URL per page so each request can use a new
+        # residential IP (Reddit throttles/blocks repeat IPs).
         proxy_configuration = await Actor.create_proxy_configuration(
             actor_proxy_input=actor_input.get("proxyConfiguration")
         )
+
+        async def fresh_proxies() -> Optional[dict[str, str]]:
+            if not proxy_configuration:
+                return None
+            url = await proxy_configuration.new_url()
+            return {"http": url, "https": url}
+
         if proxy_configuration:
-            proxy_url = await proxy_configuration.new_url()
-            proxies = {"http": proxy_url, "https": proxy_url}
             Actor.log.info("Using proxy for outgoing requests.")
 
         session = cffi_requests.Session(impersonate="chrome")
@@ -225,23 +259,28 @@ async def main() -> None:
             "Accept-Language": "en-US,en;q=0.9",
         })
 
-        # Search all of Reddit, or restrict to each named subreddit.
+        # Warm up cookies against old.reddit.com before hitting the JSON API.
+        warm_proxies = await fresh_proxies()
+        _warmup(session, REDDIT_HOSTS[0], warm_proxies, Actor.log)
+
+        # Search all of Reddit, or restrict to each named subreddit. Store
+        # host-relative paths; _fetch_json tries old.reddit then www.
         targets: list[tuple[str, bool]] = []
         if subreddits:
             for sr in subreddits:
                 name = (sr or "").strip().removeprefix("r/").strip("/")
                 if name:
-                    targets.append((f"{REDDIT_BASE}/r/{name}/search.json", True))
+                    targets.append((f"/r/{name}/search.json", True))
         else:
-            targets.append((f"{REDDIT_BASE}/search.json", False))
+            targets.append(("/search.json", False))
 
         collected = 0
 
-        for base_url, restrict in targets:
+        for path, restrict in targets:
             after: Optional[str] = None
             Actor.log.info(
-                "Searching Reddit: query=%r sort=%s time=%s comments=%s url=%s",
-                query, sort, time_filter, include_comments, base_url,
+                "Searching Reddit: query=%r sort=%s time=%s comments=%s path=%s",
+                query, sort, time_filter, include_comments, path,
             )
 
             while True:
@@ -260,9 +299,10 @@ async def main() -> None:
                 if after:
                     params["after"] = after
 
-                data = _fetch_json(session, base_url, params, proxies, Actor.log)
+                proxies = await fresh_proxies()
+                data = _fetch_json(session, path, params, proxies, Actor.log)
                 if not data:
-                    Actor.log.error("Giving up on %s after retries.", base_url)
+                    Actor.log.error("Giving up on %s after retries.", path)
                     break
 
                 listing = data.get("data", {})
@@ -276,9 +316,9 @@ async def main() -> None:
                     post = _parse_post(child)
 
                     if include_comments and post.get("id"):
-                        c_url = f"{REDDIT_BASE}/comments/{post['id']}.json"
+                        c_path = f"/comments/{post['id']}.json"
                         c_params = {"limit": comments_limit, "sort": "top", "raw_json": 1}
-                        c_data = _fetch_json(session, c_url, c_params, proxies, Actor.log)
+                        c_data = _fetch_json(session, c_path, c_params, await fresh_proxies(), Actor.log)
                         if c_data:
                             post["top_comments"] = _parse_comments(c_data, comments_limit)
                         if rate_limit_delay:
