@@ -67,3 +67,4 @@ ad_media/
 
 # Log files
 *.log
+.claude/settings.local.json
