@@ -3,3 +3,4 @@ leads.db
 leads.json
 .venv/
 __pycache__/
+mock_api.json

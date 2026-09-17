@@ -258,6 +258,15 @@ def page_param_value(param: str, page_index: int, scroll_token: Any) -> Any:
 
 
 def _load_mock() -> dict:
+    # The fixture is generated rather than committed, so build it on first use.
+    if not MOCK_PATH.exists():
+        try:
+            import make_mock
+            make_mock.write()
+            log.info("generated %s", MOCK_PATH.name)
+        except Exception as exc:
+            log.error("could not generate the mock fixture: %s", exc)
+            return {"data": [], "total": 0}
     try:
         return json.loads(MOCK_PATH.read_text())
     except Exception as exc:  # pragma: no cover - only hit with a broken fixture

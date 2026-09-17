@@ -141,7 +141,7 @@ kills a hunt.
 | `index.html` | The whole frontend. Vanilla JS, no build. |
 | `leads.db` | SQLite. Brands, **and your outreach state in its own table** so re-hunting never clobbers a status or a note. |
 | `leads.json` | Raw cache of the last hunt. If `leads.db` is missing on boot, it is restored from here — so the UI works fully offline after the first hunt. |
-| `mock_api.json` | Fixture reproducing all three API traps, for offline development. |
+| `make_mock.py` | Generates `mock_api.json`, a fixture reproducing all three API traps. Mock mode builds it automatically on first use. |
 
 Delete `leads.db` to reset outreach state; delete `leads.json` too for a clean slate.
 
@@ -167,7 +167,7 @@ GET/PUT /api/settings     the DM template
 HUNTER_MOCK=1 uvicorn server:app --port 8000
 ```
 
-Serves `mock_api.json` instead of the network — 227 ad rows across 15 brands,
+Serves a generated `mock_api.json` instead of the network — 227 ad rows across 15 brands,
 including two with no usable creative (they get filtered out, as they should)
 and one that publishes bare content hashes instead of image URLs.
 
