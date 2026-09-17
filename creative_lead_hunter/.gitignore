@@ -1,0 +1,5 @@
+# runtime state, not source
+leads.db
+leads.json
+.venv/
+__pycache__/

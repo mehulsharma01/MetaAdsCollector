@@ -1,0 +1,534 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Creative Lead Hunter</title>
+<style>
+/* Dense dark triage UI. Everything is sized so ~200 brands can be judged
+   without the eye leaving the thumbnail strip. */
+:root{
+  --bg:#0c0e12; --bg-2:#12151b; --card:#161a21; --card-2:#1b2029;
+  --line:#242a35; --line-2:#2f3746;
+  --fg:#e7ebf2; --fg-2:#a4adbd; --fg-3:#6b7585;
+  --accent:#7dd3fc; --accent-2:#38bdf8;
+  --good:#4ade80; --warn:#fbbf24; --bad:#f87171; --mid:#a78bfa;
+  --r:8px;
+  --f:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--f);font-size:14px}
+button,input,select,textarea{font-family:inherit;font-size:13px;color:var(--fg)}
+button{cursor:pointer}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* ---------- top bar ---------- */
+.bar{position:sticky;top:0;z-index:40;background:rgba(12,14,18,.94);backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--line)}
+.bar-row{display:flex;gap:8px;align-items:center;padding:9px 14px;flex-wrap:wrap}
+.bar-row+.bar-row{border-top:1px solid var(--line);padding-top:8px}
+.brandmark{font-weight:800;letter-spacing:-.02em;font-size:14px;margin-right:4px;white-space:nowrap}
+.brandmark i{color:var(--accent);font-style:normal}
+input[type=text],input[type=number],select,textarea{
+  background:var(--bg-2);border:1px solid var(--line-2);border-radius:6px;padding:6px 9px;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+input[type=number]{width:62px}
+#kw{flex:1;min-width:220px}
+.btn{background:var(--card-2);border:1px solid var(--line-2);border-radius:6px;padding:6px 13px;
+  font-weight:600}
+.btn:hover{border-color:var(--fg-3)}
+.btn-go{background:var(--accent);border-color:var(--accent);color:#06263a}
+.btn-go:hover{background:var(--accent-2)}
+.btn-go:disabled{opacity:.5;cursor:default}
+label.f{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--fg-3);white-space:nowrap}
+.sep{width:1px;height:20px;background:var(--line-2)}
+.counts{margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--fg-3);white-space:nowrap}
+.counts b{color:var(--fg)}
+.tabs{display:flex;gap:2px}
+.tab{background:none;border:1px solid transparent;border-radius:6px;padding:5px 12px;color:var(--fg-2);
+  font-weight:600;font-size:12.5px}
+.tab.on{background:var(--card-2);border-color:var(--line-2);color:var(--fg)}
+#prog{height:2px;background:var(--accent);width:0;transition:width .3s}
+#hunt-note{font-size:11.5px;color:var(--fg-3);font-family:var(--mono)}
+#hunt-note.warn{color:var(--warn)}
+
+/* ---------- grid ---------- */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;padding:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:12px;
+  display:flex;flex-direction:column;gap:9px;scroll-margin-top:110px}
+.card.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.card.dim{opacity:.4}
+
+.strip{display:grid;grid-template-columns:repeat(6,1fr);gap:3px}
+.thumb{position:relative;aspect-ratio:1;background:var(--bg-2);border-radius:4px;overflow:hidden;
+  cursor:zoom-in;border:1px solid var(--line)}
+.thumb img,.thumb video{width:100%;height:100%;object-fit:cover;display:block}
+.thumb.broken{cursor:default}
+.thumb.broken::after{content:"—";position:absolute;inset:0;display:grid;place-items:center;
+  color:var(--fg-3);font-size:16px}
+.thumb .play{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
+.thumb .play b{width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.62);
+  display:grid;place-items:center;font-size:9px;color:#fff;padding-left:2px}
+
+.head{display:flex;align-items:flex-start;gap:8px}
+.name{font-weight:700;font-size:14.5px;letter-spacing:-.01em;line-height:1.25;flex:1;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.score{font-family:var(--mono);font-weight:700;font-size:13px;padding:2px 8px;border-radius:5px;
+  flex:none;border:1px solid}
+.s-hi{color:#0b2415;background:var(--good);border-color:var(--good)}
+.s-md{color:#2b1d00;background:var(--warn);border-color:var(--warn)}
+.s-lo{color:var(--fg-2);background:transparent;border-color:var(--line-2)}
+.reason{font-size:12.5px;color:var(--fg-2);line-height:1.45}
+
+.metrics{display:flex;flex-wrap:wrap;gap:4px}
+.m{font-family:var(--mono);font-size:11px;background:var(--bg-2);border:1px solid var(--line);
+  border-radius:4px;padding:2px 6px;color:var(--fg-2);white-space:nowrap}
+.m b{color:var(--fg)}
+.m.hot{border-color:var(--good);color:var(--good)}
+.m.cool{border-color:var(--line-2)}
+
+.links{display:flex;flex-wrap:wrap;gap:8px;font-size:12px}
+.copy{font-size:12px;color:var(--fg-2);line-height:1.5;white-space:pre-wrap;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+  border-left:2px solid var(--line-2);padding-left:8px;cursor:pointer}
+.copy.open{-webkit-line-clamp:unset;display:block}
+.copy:empty{display:none}
+
+.foot{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+select.status{flex:none;font-weight:600;font-size:12px;padding:4px 7px;border-radius:5px}
+.st-New{border-color:var(--line-2);color:var(--fg-2)}
+.st-Shortlist{border-color:var(--good);color:var(--good)}
+.st-Samples{border-color:var(--mid);color:var(--mid)}
+.st-DM{border-color:var(--accent);color:var(--accent)}
+.st-Replied{border-color:var(--warn);color:var(--warn)}
+.st-Client{border-color:var(--good);color:#0b2415;background:var(--good)}
+.st-Rejected{border-color:var(--bad);color:var(--bad)}
+textarea.notes{width:100%;min-height:34px;resize:vertical;font-size:12px;line-height:1.4}
+
+.empty{padding:70px 20px;text-align:center;color:var(--fg-3);font-size:13.5px;line-height:1.7}
+.empty code{background:var(--bg-2);border:1px solid var(--line);border-radius:4px;padding:2px 6px;
+  font-family:var(--mono);font-size:12px;color:var(--fg-2)}
+
+/* ---------- shortlist ---------- */
+#sl-wrap{padding:14px;display:none}
+#sl-wrap.on{display:block}
+#sl-text{width:100%;min-height:240px;background:var(--bg-2);border:1px solid var(--line-2);
+  border-radius:6px;padding:11px;font-family:var(--mono);font-size:12.5px;line-height:1.6}
+
+/* ---------- lightbox + settings ---------- */
+.modal{position:fixed;inset:0;background:rgba(6,8,11,.9);z-index:90;display:none;
+  align-items:center;justify-content:center;padding:26px}
+.modal.on{display:flex}
+.modal img,.modal video{max-width:92vw;max-height:88vh;border-radius:6px;background:var(--bg-2)}
+.sheet{background:var(--card);border:1px solid var(--line-2);border-radius:10px;padding:18px;
+  width:min(620px,94vw);max-height:88vh;overflow:auto}
+.sheet h3{margin:0 0 4px;font-size:15px}
+.sheet p{margin:0 0 12px;font-size:12.5px;color:var(--fg-3);line-height:1.55}
+.sheet textarea{width:100%;min-height:170px;line-height:1.55}
+.sheet .row{display:flex;gap:8px;margin-top:12px}
+kbd{font-family:var(--mono);font-size:11px;background:var(--bg-2);border:1px solid var(--line-2);
+  border-bottom-width:2px;border-radius:4px;padding:1px 5px;color:var(--fg-2)}
+.keys{display:flex;gap:10px;flex-wrap:wrap;font-size:11.5px;color:var(--fg-3);align-items:center}
+#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%) translateY(20px);
+  background:var(--card-2);border:1px solid var(--line-2);border-radius:6px;padding:8px 16px;
+  font-size:12.5px;z-index:95;opacity:0;transition:.22s;pointer-events:none}
+#toast.on{opacity:1;transform:translateX(-50%)}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <div class="bar-row">
+    <span class="brandmark">Creative<i>·</i>Hunter</span>
+    <input type="text" id="kw" placeholder="skincare, serum, lip oil…">
+    <label class="f">pages <input type="number" id="pages" value="1" min="1" max="20"></label>
+    <button class="btn btn-go" id="go">Hunt</button>
+    <span id="hunt-note"></span>
+    <span class="counts" id="counts">—</span>
+  </div>
+
+  <div class="bar-row">
+    <div class="tabs">
+      <button class="tab on" data-tab="all">All</button>
+      <button class="tab" data-tab="short">Shortlist <span id="sl-n"></span></button>
+    </div>
+    <span class="sep"></span>
+    <label class="f">IG <input type="number" id="min_ig" placeholder="min" style="width:70px">–<input type="number" id="max_ig" placeholder="max" style="width:70px"></label>
+    <label class="f">visits <input type="number" id="min_visits" placeholder="min" style="width:70px">–<input type="number" id="max_visits" placeholder="max" style="width:70px"></label>
+    <select id="format">
+      <option value="all">all formats</option>
+      <option value="static">static only</option>
+      <option value="video">has video</option>
+    </select>
+    <select id="adscore">
+      <option value="all">all ad scores</option>
+      <option value="Testing">Testing</option>
+      <option value="Scaling">Scaling</option>
+      <option value="Winning">Winning</option>
+      <option value="Testing,Scaling">Testing + Scaling</option>
+    </select>
+    <select id="status"><option value="all">all statuses</option></select>
+    <select id="sort">
+      <option value="score">lead score</option>
+      <option value="static">static %</option>
+      <option value="followers">followers</option>
+      <option value="visits">visits</option>
+      <option value="ads">ad count</option>
+    </select>
+    <span class="sep"></span>
+    <button class="btn" id="csv">CSV</button>
+    <button class="btn" id="cfg">Template</button>
+    <span class="keys"><kbd>j</kbd><kbd>k</kbd> move <kbd>s</kbd> shortlist <kbd>x</kbd> reject <kbd>↵</kbd> store</span>
+  </div>
+  <div id="prog"></div>
+</div>
+
+<div class="grid" id="grid"></div>
+
+<div id="sl-wrap">
+  <p style="color:var(--fg-3);font-size:12.5px;margin:0 0 9px">
+    Shortlisted brands, ready to paste into your outreach session.
+    <button class="btn" id="sl-copy" style="margin-left:8px">Copy all</button>
+  </p>
+  <textarea id="sl-text" spellcheck="false"></textarea>
+</div>
+
+<div class="modal" id="light"><div id="light-inner"></div></div>
+
+<div class="modal" id="settings">
+  <div class="sheet">
+    <h3>DM template</h3>
+    <p><code>{brand}</code> is replaced with the brand name. Saved to the database, so it
+       survives restarts.</p>
+    <textarea id="tpl" spellcheck="false"></textarea>
+    <div class="row">
+      <button class="btn btn-go" id="tpl-save">Save</button>
+      <button class="btn" id="tpl-close">Close</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const api = (u, o) => fetch(u, o).then(r => r.ok ? r.json() : Promise.reject(r));
+
+let BRANDS = [], ACTIVE = -1, TAB = 'all', TEMPLATE = '', STATUSES = [];
+
+function toast(msg){
+  const t = $('#toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('on'), 1600);
+}
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const n = v => v === null || v === undefined ? '—'
+  : v >= 1e6 ? (v/1e6).toFixed(1).replace(/\.0$/,'') + 'm'
+  : v >= 1e3 ? (v/1e3).toFixed(1).replace(/\.0$/,'') + 'k' : String(v);
+
+function qs(){
+  const p = new URLSearchParams();
+  const add = (k, el) => { const v = $(el).value.trim(); if (v !== '') p.set(k, v); };
+  add('min_ig', '#min_ig'); add('max_ig', '#max_ig');
+  add('min_visits', '#min_visits'); add('max_visits', '#max_visits');
+  const f = $('#format').value, a = $('#adscore').value, s = $('#status').value;
+  if (f !== 'all') p.set('format', f);
+  if (a !== 'all') p.set('adscore', a);
+  if (s !== 'all') p.set('status', s);
+  p.set('sort', $('#sort').value);
+  return p.toString();
+}
+
+/* ---------- rendering ---------- */
+
+function thumbHTML(c, i){
+  if (c.type === 'video'){
+    const poster = c.poster ? `<img src="${esc(c.poster)}" loading="lazy" alt=""
+        onerror="this.parentNode.classList.add('broken');this.remove()">` : '';
+    return `<div class="thumb" data-i="${i}" data-type="video" data-src="${esc(c.src)}"
+        data-poster="${esc(c.poster || '')}">${poster}<span class="play"><b>▶</b></span></div>`;
+  }
+  return `<div class="thumb" data-i="${i}" data-type="image" data-src="${esc(c.src)}">
+      <img src="${esc(c.src)}" loading="lazy" alt=""
+        onerror="this.parentNode.classList.add('broken');this.remove()"></div>`;
+}
+
+function statusClass(s){
+  return 'st-' + String(s || 'New').split(' ')[0];
+}
+
+function cardHTML(b, idx){
+  const cls = b.lead_score >= 65 ? 's-hi' : b.lead_score >= 40 ? 's-md' : 's-lo';
+  const strip = (b.creatives || []).slice(0, 6).map(thumbHTML).join('') || '';
+  const opts = STATUSES.map(s =>
+    `<option value="${esc(s)}"${s === b.status ? ' selected' : ''}>${esc(s)}</option>`).join('');
+
+  const m = [];
+  m.push(`<span class="m ${b.static_pct >= 80 ? 'hot' : ''}"><b>${b.static_pct}%</b> static</span>`);
+  m.push(`<span class="m"><b>${b.ad_count}</b> ads</span>`);
+  m.push(`<span class="m"><b>${n(b.ig_followers)}</b> IG</span>`);
+  m.push(`<span class="m"><b>${n(b.monthly_visits)}</b> vis/mo</span>`);
+  if (b.days_running != null) m.push(`<span class="m"><b>${b.days_running}</b>d</span>`);
+  if (b.adscore) m.push(`<span class="m cool">${esc(b.adscore)}</span>`);
+  if (b.country_code) m.push(`<span class="m cool">${esc(b.country_code)}</span>`);
+  if (b.is_shopify) m.push(`<span class="m cool">Shopify</span>`);
+
+  const links = [];
+  if (b.url_store) links.push(`<a href="${esc(b.url_store)}" target="_blank" rel="noopener">store ↗</a>`);
+  if (b.url_all) links.push(`<a href="${esc(b.url_all)}" target="_blank" rel="noopener">ad library ↗</a>`);
+  if (b.page_profile_uri) links.push(`<a href="${esc(b.page_profile_uri)}" target="_blank" rel="noopener">FB ↗</a>`);
+
+  return `<div class="card" data-id="${esc(b.page_id)}" data-idx="${idx}">
+    <div class="strip">${strip}</div>
+    <div class="head">
+      <div class="name" title="${esc(b.page_name)}">${esc(b.page_name)}</div>
+      <div class="score ${cls}">${b.lead_score}</div>
+    </div>
+    <div class="reason">${esc(b.reason)}</div>
+    <div class="metrics">${m.join('')}</div>
+    <div class="links">${links.join('')}</div>
+    <div class="copy">${esc(b.ad_copy || b.caption || '')}</div>
+    <div class="foot">
+      <select class="status ${statusClass(b.status)}">${opts}</select>
+      <button class="btn dm">Copy DM</button>
+    </div>
+    <textarea class="notes" placeholder="notes…" spellcheck="false">${esc(b.notes)}</textarea>
+  </div>`;
+}
+
+function render(){
+  const list = TAB === 'short' ? BRANDS.filter(b => b.status === 'Shortlist') : BRANDS;
+  const grid = $('#grid');
+
+  if (TAB === 'short'){
+    $('#sl-wrap').classList.add('on');
+    grid.style.display = 'none';
+    $('#sl-text').value = list.map(b =>
+      `${b.page_name}  —  ${b.url_store || '(no store url)'}`).join('\n');
+  } else {
+    $('#sl-wrap').classList.remove('on');
+    grid.style.display = '';
+  }
+
+  if (!list.length){
+    grid.innerHTML = `<div class="empty" style="grid-column:1/-1">
+      Nothing here yet.<br>Set your keywords and press <code>Hunt</code>,
+      or loosen the filters.</div>`;
+  } else {
+    grid.innerHTML = list.map(cardHTML).join('');
+  }
+  $('#sl-n').textContent = BRANDS.filter(b => b.status === 'Shortlist').length || '';
+  if (ACTIVE >= list.length) ACTIVE = list.length - 1;
+  paintActive();
+}
+
+function paintActive(){
+  document.querySelectorAll('.card').forEach((c, i) => c.classList.toggle('active', i === ACTIVE));
+}
+
+function moveActive(delta){
+  const cards = document.querySelectorAll('.card');
+  if (!cards.length) return;
+  ACTIVE = Math.max(0, Math.min(cards.length - 1, ACTIVE + delta));
+  paintActive();
+  cards[ACTIVE].scrollIntoView({block:'nearest', behavior:'smooth'});
+}
+
+/* ---------- data ---------- */
+
+async function load(){
+  const d = await api('/api/leads?' + qs());
+  BRANDS = d.brands;
+  STATUSES = d.statuses;
+  const sel = $('#status');
+  if (sel.options.length <= 1){
+    STATUSES.forEach(s => sel.add(new Option(s, s)));
+  }
+  const raw = d.raw_ads != null ? `${d.raw_ads} raw ads → ` : '';
+  const dropped = d.dropped_no_creative ? ` · ${d.dropped_no_creative} hidden (no creative)` : '';
+  $('#counts').innerHTML =
+    `${raw}<b>${d.total_brands}</b> brands · showing <b>${d.shown}</b>${dropped}`;
+  render();
+}
+
+async function patch(pageId, body){
+  const r = await api('/api/leads/' + encodeURIComponent(pageId), {
+    method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+  });
+  const b = BRANDS.find(x => x.page_id === pageId);
+  if (b){ b.status = r.status; b.notes = r.notes; }
+  return r;
+}
+
+/* ---------- hunting ---------- */
+
+async function hunt(){
+  const keywords = $('#kw').value.split(',').map(s => s.trim()).filter(Boolean);
+  const pages = parseInt($('#pages').value, 10) || 1;
+  $('#go').disabled = true;
+  try {
+    await api('/api/hunt', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ keywords: keywords.length ? keywords : null, pages })
+    });
+  } catch (e){
+    toast('Could not start the hunt'); $('#go').disabled = false; return;
+  }
+  poll();
+}
+
+async function poll(){
+  let s;
+  try { s = await api('/api/hunt/status'); } catch { s = null; }
+  if (!s){ $('#go').disabled = false; return; }
+
+  const pct = s.total ? Math.round(100 * s.done / s.total) : 0;
+  $('#prog').style.width = pct + '%';
+  const note = $('#hunt-note');
+
+  if (s.running){
+    note.classList.remove('warn');
+    note.textContent = `${s.current}  ${s.done}/${s.total}  ·  ${s.raw_ads} ads`;
+    setTimeout(poll, 700);
+    return;
+  }
+
+  $('#go').disabled = false;
+  $('#prog').style.width = '0';
+  if (s.pagination_ok === false){
+    note.classList.add('warn');
+    note.textContent = '⚠ pagination has no effect — only page 1 is unique (see PAGE_PARAM)';
+  } else {
+    note.classList.remove('warn');
+    note.textContent = s.finished_at
+      ? `done · ${s.raw_ads} ads → ${s.brands} brands` + (s.errors.length ? ` · ${s.errors.length} errors` : '')
+      : '';
+  }
+  load();
+}
+
+/* ---------- events ---------- */
+
+$('#go').onclick = hunt;
+$('#csv').onclick = () => location.href = '/api/export?' + qs();
+['#min_ig','#max_ig','#min_visits','#max_visits'].forEach(s => $(s).onchange = load);
+['#format','#adscore','#status','#sort'].forEach(s => $(s).onchange = load);
+
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('on'));
+  t.classList.add('on'); TAB = t.dataset.tab; render();
+});
+
+$('#sl-copy').onclick = () => {
+  navigator.clipboard.writeText($('#sl-text').value).then(() => toast('Shortlist copied'));
+};
+
+$('#grid').addEventListener('click', async e => {
+  const card = e.target.closest('.card');
+  if (!card) return;
+  const id = card.dataset.id;
+  const brand = BRANDS.find(b => b.page_id === id);
+  ACTIVE = +card.dataset.idx; paintActive();
+
+  const thumb = e.target.closest('.thumb');
+  if (thumb && !thumb.classList.contains('broken')){
+    const inner = $('#light-inner');
+    if (thumb.dataset.type === 'video'){
+      inner.innerHTML = `<video src="${esc(thumb.dataset.src)}" controls autoplay loop
+        poster="${esc(thumb.dataset.poster)}"></video>`;
+    } else {
+      inner.innerHTML = `<img src="${esc(thumb.dataset.src)}" alt="">`;
+    }
+    $('#light').classList.add('on');
+    return;
+  }
+
+  if (e.target.classList.contains('copy')){ e.target.classList.toggle('open'); return; }
+
+  if (e.target.classList.contains('dm')){
+    const msg = TEMPLATE.replaceAll('{brand}', brand ? brand.page_name : '');
+    navigator.clipboard.writeText(msg).then(() => toast('DM copied'));
+    return;
+  }
+});
+
+$('#grid').addEventListener('change', async e => {
+  const card = e.target.closest('.card'); if (!card) return;
+  if (e.target.classList.contains('status')){
+    const r = await patch(card.dataset.id, { status: e.target.value });
+    e.target.className = 'status ' + statusClass(r.status);
+    $('#sl-n').textContent = BRANDS.filter(b => b.status === 'Shortlist').length || '';
+  }
+});
+
+$('#grid').addEventListener('blur', async e => {
+  const card = e.target.closest('.card'); if (!card) return;
+  if (e.target.classList.contains('notes')){
+    await patch(card.dataset.id, { notes: e.target.value });
+    toast('Note saved');
+  }
+}, true);
+
+$('#light').onclick = () => { $('#light').classList.remove('on'); $('#light-inner').innerHTML = ''; };
+
+$('#cfg').onclick = () => { $('#tpl').value = TEMPLATE; $('#settings').classList.add('on'); };
+$('#tpl-close').onclick = () => $('#settings').classList.remove('on');
+$('#tpl-save').onclick = async () => {
+  const r = await api('/api/settings', {
+    method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ dm_template: $('#tpl').value })
+  });
+  TEMPLATE = r.dm_template;
+  $('#settings').classList.remove('on');
+  toast('Template saved');
+};
+
+document.addEventListener('keydown', async e => {
+  if (e.target.matches('input,textarea,select')) return;
+  if (e.key === 'Escape'){
+    $('#light').classList.remove('on'); $('#light-inner').innerHTML = '';
+    $('#settings').classList.remove('on'); return;
+  }
+  const cards = document.querySelectorAll('.card');
+  if (!cards.length) return;
+  const card = cards[ACTIVE];
+
+  if (e.key === 'j'){ e.preventDefault(); moveActive(1); }
+  else if (e.key === 'k'){ e.preventDefault(); moveActive(-1); }
+  else if (e.key === 's' && card){
+    e.preventDefault();
+    const r = await patch(card.dataset.id, { status: 'Shortlist' });
+    card.querySelector('.status').value = r.status;
+    card.querySelector('.status').className = 'status ' + statusClass(r.status);
+    $('#sl-n').textContent = BRANDS.filter(b => b.status === 'Shortlist').length || '';
+    toast('Shortlisted'); moveActive(1);
+  }
+  else if (e.key === 'x' && card){
+    e.preventDefault();
+    const r = await patch(card.dataset.id, { status: 'Rejected' });
+    card.querySelector('.status').value = r.status;
+    card.querySelector('.status').className = 'status ' + statusClass(r.status);
+    card.classList.add('dim');
+    toast('Rejected'); moveActive(1);
+  }
+  else if (e.key === 'Enter' && card){
+    e.preventDefault();
+    const b = BRANDS.find(x => x.page_id === card.dataset.id);
+    if (b && b.url_store) window.open(b.url_store, '_blank', 'noopener');
+    else toast('No store URL for this brand');
+  }
+});
+
+/* ---------- boot ---------- */
+(async () => {
+  const s = await api('/api/settings');
+  TEMPLATE = s.dm_template;
+  $('#kw').value = s.default_keywords.join(', ');
+  if (s.mock_mode) $('#hunt-note').textContent = 'mock mode — local fixture, not the live API';
+  await load();
+})();
+</script>
+</body>
+</html>
